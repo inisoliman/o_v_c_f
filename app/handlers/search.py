@@ -1,12 +1,17 @@
 """معالج البحث"""
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler
-from sqlalchemy import text
-from app.core.database import get_session
+from telebot import types
+from app.services.video_service import VideoService
 
 logger = logging.getLogger(__name__)
 
+
+
+def register_search_handlers(bot):
+    """تسجيل معالجات البحث"""
+    print("✅ تم تسجيل معالجات البحث")
+
+    
 async def handle_search_query(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str = None) -> None:
     if not query:
         query = update.message.text if update.message else ""

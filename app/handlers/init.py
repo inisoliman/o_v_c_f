@@ -7,6 +7,8 @@ from .video import register_video_handlers
 from .category import register_category_handlers
 from .user import register_user_handlers
 from .admin import register_admin_handlers
+from .callbacks import register_callback_handlers
+from .text import register_text_handlers
 
 
 def register_all_handlers(bot):
@@ -29,5 +31,11 @@ def register_all_handlers(bot):
     
     # معالجات الإدارة
     register_admin_handlers(bot)
+    
+    # معالجات الأزرار
+    register_callback_handlers(bot)
+    
+    # معالجات النصوص
+    register_text_handlers(bot)
     
     print("✅ تم تسجيل جميع معالجات البوت")
