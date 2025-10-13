@@ -1,7 +1,6 @@
 python-telegram-bot==20.7
 asyncpg==0.29.0
-sqlalchemy[asyncio]==2.0.23
+sqlalchemy==2.0.23
 python-dotenv==1.0.0
-pydantic-settings==2.0.3
 flask==3.0.0
 requests==2.31.0
