@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 🎬 Telegram Video Archive Bot - Webhook Version
 بوت أرشيف الفيديوهات مع Webhooks لتجنب التضارب
@@ -260,3 +259,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
