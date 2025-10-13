@@ -6,5 +6,4 @@ psutil
 requests
 python-dotenv
 schedule
-pydantic
-pydantic-settings
+
