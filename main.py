@@ -17,7 +17,6 @@ load_dotenv()
 from app.core.config import settings
 from app.database.connection import check_database, init_database
 from app.services.user_service import UserService
-from app.handlers import register_all_handlers
 from app.utils.keep_alive import run_keep_alive_system
 
 # إعداد التسجيل
@@ -86,3 +85,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
