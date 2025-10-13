@@ -101,7 +101,7 @@ def self_ping():
         except Exception as e:
             logger.warning(f"⚠️ Self-ping failed: {e}")
 
-# === قاعدة البيانات ===
+# === قاعدة البيانات - مُصححة لتتناسب مع قاعدة بياناتك ===
 def get_db_connection():
     """الاتصال بقاعدة البيانات"""
     try:
@@ -134,7 +134,7 @@ def init_database():
         
         cursor = conn.cursor()
         
-        # التحقق من وجود الجداول
+        # التحقق من وجود الجداول (أسماء جداولك الحقيقية)
         cursor.execute("""
             SELECT table_name FROM information_schema.tables 
             WHERE table_schema = 'public' 
@@ -159,12 +159,14 @@ def get_users_count():
         if not conn:
             return 0
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM bot_users WHERE is_active = true")
+        # استخدام أسماء الأعمدة الحقيقية
+        cursor.execute("SELECT COUNT(*) FROM bot_users")
         count = cursor.fetchone()[0]
         cursor.close()
         conn.close()
         return count
-    except:
+    except Exception as e:
+        logger.error(f"❌ خطأ في عدد المستخدمين: {e}")
         return 0
 
 def get_videos_count():
@@ -174,12 +176,13 @@ def get_videos_count():
         if not conn:
             return 0
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM video_archive WHERE is_active = true")
+        cursor.execute("SELECT COUNT(*) FROM video_archive")
         count = cursor.fetchone()[0]
         cursor.close()
         conn.close()
         return count
-    except:
+    except Exception as e:
+        logger.error(f"❌ خطأ في عدد الفيديوهات: {e}")
         return 0
 
 def get_categories_count():
@@ -189,31 +192,32 @@ def get_categories_count():
         if not conn:
             return 0
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM categories WHERE is_active = true")
+        cursor.execute("SELECT COUNT(*) FROM categories")
         count = cursor.fetchone()[0]
         cursor.close()
         conn.close()
         return count
-    except:
+    except Exception as e:
+        logger.error(f"❌ خطأ في عدد التصنيفات: {e}")
         return 0
 
-def add_user(user_id, username, first_name, last_name):
-    """إضافة/تحديث مستخدم"""
+def add_user(user_id, username, first_name, last_name=None):
+    """إضافة/تحديث مستخدم - مُصحح للأعمدة الحقيقية"""
     try:
         conn = get_db_connection()
         if not conn:
             return False
         cursor = conn.cursor()
         
+        # استخدام الأعمدة الموجودة فعلياً: user_id, username, first_name, join_date
         cursor.execute("""
-            INSERT INTO bot_users (user_id, username, first_name, last_name, last_activity)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO bot_users (user_id, username, first_name, join_date)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 first_name = EXCLUDED.first_name,
-                last_name = EXCLUDED.last_name,
-                last_activity = EXCLUDED.last_activity
-        """, (user_id, username, first_name, last_name, datetime.now()))
+                join_date = CURRENT_TIMESTAMP
+        """, (user_id, username, first_name, datetime.now()))
         
         conn.commit()
         cursor.close()
@@ -224,21 +228,21 @@ def add_user(user_id, username, first_name, last_name):
         return False
 
 def search_videos(query, limit=10):
-    """البحث في الفيديوهات"""
+    """البحث في الفيديوهات - مُصحح للأعمدة الحقيقية"""
     try:
         conn = get_db_connection()
         if not conn:
             return []
         cursor = conn.cursor()
         
+        # استخدام الأعمدة الموجودة: id, title, caption, view_count, file_name, file_size
         cursor.execute("""
-            SELECT id, title, description, view_count, download_count, file_size, duration
+            SELECT id, title, caption, view_count, file_name, file_size, category_id
             FROM video_archive 
-            WHERE is_active = true 
-            AND (title ILIKE %s OR description ILIKE %s)
+            WHERE (title ILIKE %s OR caption ILIKE %s OR file_name ILIKE %s)
             ORDER BY view_count DESC
             LIMIT %s
-        """, (f"%{query}%", f"%{query}%", limit))
+        """, (f"%{query}%", f"%{query}%", f"%{query}%", limit))
         
         results = cursor.fetchall()
         cursor.close()
@@ -249,25 +253,29 @@ def search_videos(query, limit=10):
         return []
 
 def get_video_by_id(video_id):
-    """الحصول على فيديو بالمعرف"""
+    """الحصول على فيديو بالمعرف - مُصحح للأعمدة الحقيقية"""
     try:
         conn = get_db_connection()
         if not conn:
             return None
         cursor = conn.cursor()
         
+        # استخدام أسماء الأعمدة الصحيحة من قاعدة بياناتك
         cursor.execute("""
-            SELECT v.*, c.name as category_name
+            SELECT v.id, v.message_id, v.caption, v.chat_id, v.file_name, v.file_id, 
+                   v.category_id, v.metadata, v.view_count, v.title, v.grouping_key, 
+                   v.upload_date, c.name as category_name
             FROM video_archive v
             LEFT JOIN categories c ON v.category_id = c.id
-            WHERE v.id = %s AND v.is_active = true
+            WHERE v.id = %s
         """, (video_id,))
         
         result = cursor.fetchone()
         cursor.close()
         conn.close()
         return result
-    except:
+    except Exception as e:
+        logger.error(f"❌ خطأ في الحصول على الفيديو: {e}")
         return None
 
 def update_view_count(video_id):
@@ -281,8 +289,65 @@ def update_view_count(video_id):
         conn.commit()
         cursor.close()
         conn.close()
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"❌ خطأ في تحديث عداد المشاهدة: {e}")
+
+def add_to_history(user_id, video_id):
+    """إضافة إلى سجل المشاهدة"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return
+        cursor = conn.cursor()
+        
+        # استخدام أسماء الأعمدة الحقيقية
+        cursor.execute("""
+            INSERT INTO user_history (user_id, video_id, last_viewed, last_watched)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id, video_id) DO UPDATE SET
+                last_viewed = EXCLUDED.last_viewed,
+                last_watched = EXCLUDED.last_watched
+        """, (user_id, video_id, datetime.now(), datetime.now()))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"❌ خطأ في إضافة إلى السجل: {e}")
+
+def toggle_favorite(user_id, video_id):
+    """إضافة/إزالة من المفضلة"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+        cursor = conn.cursor()
+        
+        # فحص إذا كان في المفضلة
+        cursor.execute("SELECT id FROM user_favorites WHERE user_id = %s AND video_id = %s", (user_id, video_id))
+        exists = cursor.fetchone()
+        
+        if exists:
+            # إزالة من المفضلة
+            cursor.execute("DELETE FROM user_favorites WHERE user_id = %s AND video_id = %s", (user_id, video_id))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return False  # تم إزالته
+        else:
+            # إضافة للمفضلة
+            cursor.execute("""
+                INSERT INTO user_favorites (user_id, video_id, added_date, date_added)
+                VALUES (%s, %s, %s, %s)
+            """, (user_id, video_id, datetime.now(), datetime.now()))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True  # تم إضافته
+            
+    except Exception as e:
+        logger.error(f"❌ خطأ في المفضلة: {e}")
+        return False
 
 # === معالجات البوت ===
 
@@ -300,6 +365,11 @@ def start_command(message):
 📚 **التصنيفات:** تصفح حسب النوع
 ⭐ **المفضلة:** احفظ الفيديوهات المفضلة
 🎯 **التقييم:** قيم الفيديوهات من 1-5 نجوم
+
+📊 **إحصائيات الأرشيف:**
+🎬 الفيديوهات: {get_videos_count():,}
+👥 المستخدمون: {get_users_count():,}
+📚 التصنيفات: {get_categories_count():,}
 
 🤖 **البوت يعمل 24/7 مجاناً مع Keep Alive System!**
 
@@ -337,7 +407,10 @@ def admin_command(message):
 🤖 **حالة النظام:**
 ├ قاعدة البيانات: {'✅ متصلة' if check_database() else '❌ منقطعة'}
 ├ Keep Alive: ✅ يعمل
-└ آخر تحديث: {datetime.now().strftime('%H:%M')}"""
+└ آخر تحديث: {datetime.now().strftime('%H:%M')}
+
+🌐 **رابط المراقبة:**
+[https://o-v-c-f.onrender.com](https://o-v-c-f.onrender.com)"""
     
     markup = types.InlineKeyboardMarkup()
     btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
@@ -362,7 +435,7 @@ def text_handler(message):
     
     if not results:
         bot.edit_message_text(
-            f"❌ لم يتم العثور على نتائج للبحث: **{query}**\n\n💡 جرب:\n• استخدام كلمات أخرى\n• البحث بالإنجليزية",
+            f"❌ لم يتم العثور على نتائج للبحث: **{query}**\n\n💡 جرب:\n• استخدام كلمات أخرى\n• البحث بالإنجليزية\n• البحث في التصنيفات",
             wait_msg.chat.id, wait_msg.message_id, parse_mode='Markdown'
         )
         return
@@ -372,11 +445,17 @@ def text_handler(message):
     
     markup = types.InlineKeyboardMarkup()
     
-    for i, video in enumerate(results[:5], 1):
-        title = video[1][:50] + "..." if len(video[1]) > 50 else video[1]
-        text += f"**{i}.** {title}\n   👁️ {video[3]} | 📥 {video[4]}\n\n"
+    for i, video in enumerate(results[:10], 1):
+        # video = (id, title, caption, view_count, file_name, file_size, category_id)
+        title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+        title = title[:50] + "..." if len(title) > 50 else title
         
-        btn = types.InlineKeyboardButton(f"📺 {title[:30]}...", callback_data=f"video_{video[0]}")
+        views = video[3] if video[3] else 0
+        size = f" | 💾 {video[5]//1024//1024:.0f}MB" if video[5] else ""
+        
+        text += f"**{i}.** {title}\n   👁️ {views:,}{size}\n\n"
+        
+        btn = types.InlineKeyboardButton(f"📺 {title[:25]}...", callback_data=f"video_{video[0]}")
         markup.add(btn)
     
     btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
@@ -401,6 +480,9 @@ def callback_handler(call):
 🤖 **البوت يعمل 24/7 مع نظام Keep Alive**
 🔄 **آخر تحديث:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
+🌐 **رابط المراقبة:**
+[https://o-v-c-f.onrender.com/health](https://o-v-c-f.onrender.com/health)
+
 🚀 **استمتع بتصفح الأرشيف المجاني!**"""
             
             markup = types.InlineKeyboardMarkup()
@@ -416,16 +498,19 @@ def callback_handler(call):
 **🔍 البحث:**
 • اكتب اسم الفيديو مباشرة
 • البحث يدعم العربية والإنجليزية
+• يبحث في العنوان والوصف واسم الملف
 
 **📚 التصنيفات:**
 • تصفح حسب النوع
 • تصنيفات متعددة المستويات
+• مئات الفيديوهات المنظمة
 
 **⭐ المفضلة:**
 • احفظ الفيديوهات المفضلة
 • وصول سريع لمحتواك
 
 **🤖 البوت يعمل 24/7 مجاناً مع Keep Alive System**
+**🔄 نظام تنظيف تلقائي للسجل كل 15 يوم**
 
 للمساعدة تواصل مع المشرف"""
             
@@ -444,51 +529,91 @@ def callback_handler(call):
                 bot.answer_callback_query(call.id, "❌ الفيديو غير موجود")
                 return
             
-            # زيادة عداد المشاهدة
+            # زيادة عداد المشاهدة وإضافة للسجل
             update_view_count(video_id)
+            add_to_history(call.from_user.id, video_id)
             
             # تنسيق معلومات الفيديو
-            text = f"🎬 **{video[3]}**\n\n"  # title
+            # video = (id, message_id, caption, chat_id, file_name, file_id, category_id, metadata, view_count, title, grouping_key, upload_date, category_name)
+            title = video[9] if video[9] else (video[4] if video[4] else f"فيديو {video[0]}")
+            text = f"🎬 **{title}**\n\n"
             
-            if video[4]:  # description
-                desc = video[4][:200] + "..." if len(video[4]) > 200 else video[4]
+            if video[2]:  # caption/description
+                desc = video[2][:200] + "..." if len(video[2]) > 200 else video[2]
                 text += f"📝 {desc}\n\n"
             
-            if video[-1]:  # category_name
-                text += f"📚 **التصنيف:** {video[-1]}\n"
+            if video[12]:  # category_name
+                text += f"📚 **التصنيف:** {video[12]}\n"
             
-            # معلومات الملف
-            if video[6]:  # file_size
-                size_mb = video[6] / (1024 * 1024)
-                text += f"💾 **الحجم:** {size_mb:.1f} MB\n"
-            
-            if video[7]:  # duration
-                minutes = video[7] // 60
-                seconds = video[7] % 60
-                text += f"⏱️ **المدة:** {minutes:02d}:{seconds:02d}\n"
-            
+            if video[4]:  # file_name
+                text += f"📄 **اسم الملف:** {video[4][:50]}\n"
+                
             text += f"\n📊 **الإحصائيات:**\n"
-            text += f"👁️ المشاهدات: {video[10]:,}\n"  # view_count  
-            text += f"📥 التحميلات: {video[11]:,}\n"  # download_count
+            text += f"👁️ المشاهدات: {video[8]:,}\n"  # view_count
+            
+            if video[11]:  # upload_date
+                upload_date = video[11].strftime('%Y-%m-%d')
+                text += f"📅 تاريخ الرفع: {upload_date}\n"
             
             markup = types.InlineKeyboardMarkup()
-            btn_download = types.InlineKeyboardButton("📥 تحميل", callback_data=f"download_{video_id}")
-            btn_favorite = types.InlineKeyboardButton("💖 مفضلة", callback_data=f"favorite_{video_id}")
-            btn_back = types.InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")
             
-            markup.add(btn_download, btn_favorite)
+            if video[5]:  # file_id exists - يمكن التحميل
+                btn_download = types.InlineKeyboardButton("📥 تحميل", callback_data=f"download_{video_id}")
+                btn_favorite = types.InlineKeyboardButton("💖 مفضلة", callback_data=f"favorite_{video_id}")
+                markup.add(btn_download, btn_favorite)
+            else:
+                btn_favorite = types.InlineKeyboardButton("💖 مفضلة", callback_data=f"favorite_{video_id}")
+                markup.add(btn_favorite)
+            
+            btn_back = types.InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")
             markup.add(btn_back)
             
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
                                 reply_markup=markup, parse_mode='Markdown')
         
-        bot.answer_callback_query(call.id)
+        elif call.data.startswith("download_"):
+            video_id = int(call.data.replace("download_", ""))
+            video = get_video_by_id(video_id)
+            
+            if not video or not video[5]:  # لا يوجد file_id
+                bot.answer_callback_query(call.id, "❌ الفيديو غير متاح للتحميل", show_alert=True)
+                return
+            
+            try:
+                # إرسال الفيديو
+                title = video[9] if video[9] else (video[4] if video[4] else f"فيديو {video[0]}")
+                bot.send_document(
+                    chat_id=call.message.chat.id,
+                    document=video[5],  # file_id
+                    caption=f"🎬 **{title}**\n📥 من أرشيف الفيديوهات المجاني\n🤖 البوت يعمل 24/7",
+                    parse_mode="Markdown"
+                )
+                
+                bot.answer_callback_query(call.id, "✅ تم إرسال الفيديو", show_alert=True)
+                
+            except Exception as e:
+                logger.error(f"❌ خطأ في إرسال الفيديو: {e}")
+                bot.answer_callback_query(call.id, "❌ حدث خطأ أثناء التحميل", show_alert=True)
+        
+        elif call.data.startswith("favorite_"):
+            video_id = int(call.data.replace("favorite_", ""))
+            
+            # تغيير حالة المفضلة
+            is_added = toggle_favorite(call.from_user.id, video_id)
+            
+            if is_added:
+                bot.answer_callback_query(call.id, "✅ تم إضافة الفيديو للمفضلة", show_alert=True)
+            else:
+                bot.answer_callback_query(call.id, "❌ تم إزالة الفيديو من المفضلة", show_alert=True)
+        
+        else:
+            bot.answer_callback_query(call.id, "🔄 هذه الميزة قيد التطوير")
         
     except Exception as e:
         logger.error(f"❌ خطأ في معالج الأزرار: {e}")
-        bot.answer_callback_query(call.id, "حدث خطأ")
+        bot.answer_callback_query(call.id, "❌ حدث خطأ")
 
-# === تنظيف السجل التلقائي ===
+# === تنظيف السجل التلقائي (كما طلبت 15 يوم) ===
 def cleanup_old_history():
     """حذف سجل المشاهدة القديم (15 يوم كما طلبت)"""
     try:
@@ -498,7 +623,7 @@ def cleanup_old_history():
         cursor = conn.cursor()
         
         cutoff_date = datetime.now() - timedelta(days=15)
-        cursor.execute("DELETE FROM user_history WHERE watched_at < %s", (cutoff_date,))
+        cursor.execute("DELETE FROM user_history WHERE last_watched < %s", (cutoff_date,))
         
         deleted_count = cursor.rowcount
         conn.commit()
@@ -511,7 +636,7 @@ def cleanup_old_history():
     except Exception as e:
         logger.error(f"❌ خطأ في تنظيف السجل: {e}")
 
-# جدولة تنظيف السجل يومياً
+# جدولة تنظيف السجل يومياً في 3 صباحاً
 schedule.every().day.at("03:00").do(cleanup_old_history)
 
 def run_scheduler():
@@ -538,7 +663,7 @@ def main():
     # بدء المجدول
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
-    logger.info("✅ Auto-cleanup scheduler started")
+    logger.info("✅ Auto-cleanup scheduler started (15 days)")
     
     # تهيئة قاعدة البيانات
     if init_database():
@@ -550,6 +675,7 @@ def main():
     logger.info("🎬 Starting Telegram bot with Keep Alive...")
     logger.info("🎉 البوت يعمل بنجاح 24/7 مجاناً!")
     logger.info("🔄 Keep Alive prevents sleeping every 14 minutes")
+    logger.info(f"📊 إحصائيات: {get_videos_count()} فيديو | {get_users_count()} مستخدم")
     
     # بدء البوت
     bot.infinity_polling(timeout=60, long_polling_timeout=60)
