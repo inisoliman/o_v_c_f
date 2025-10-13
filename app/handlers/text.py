@@ -1,7 +1,8 @@
 """
-معالج الرسائل النصية والبحث
+معالج الرسائل النصية والبحث المحسن
 """
 import logging
+import math
 from telebot import types
 from app.services.video_service import VideoService
 from app.handlers.callbacks import user_states
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def handle_text_message(bot, message):
-    """معالج الرسائل النصية العامة"""
+    """معالج الرسائل النصية العامة مع البحث المحسن"""
     user_id = message.from_user.id
     query = message.text.strip()
     
@@ -26,18 +27,24 @@ def handle_text_message(bot, message):
         bot.reply_to(message, "🔍 يرجى كتابة كلمة بحث أكثر من حرف واحد")
         return
     
-    # بحث سريع
-    wait_msg = bot.reply_to(message, "🔍 جاري البحث في الأرشيف...")
+    # بحث سريع محسن
+    wait_msg = bot.reply_to(message, "🔍 جاري البحث الذكي في الأرشيف...")
     
     results = VideoService.search_videos(query, limit=15)
+    total_count = VideoService.get_search_count(query)
     
     if not results:
         no_results_text = f"❌ **لم يتم العثور على نتائج للبحث:** {query}\n\n"
-        no_results_text += "💡 **اقتراحات:**\n"
-        no_results_text += "• جرب كلمات أخرى\n"
-        no_results_text += "• البحث بالإنجليزية\n"
-        no_results_text += "• تصفح التصنيفات\n"
-        no_results_text += "• تصفح الأشهر والأحدث"
+        no_results_text += "💡 **اقتراحات للبحث:**\n"
+        no_results_text += "• جرب كلمات مختلفة أو مرادفات\n"
+        no_results_text += "• ابحث بالإنجليزية أو العربية\n"
+        no_results_text += "• استخدم كلمات أقل وأكثر عمومية\n"
+        no_results_text += "• تصفح التصنيفات أو الأشهر\n\n"
+        no_results_text += "🎯 **البحث يتم في:**\n"
+        no_results_text += "• 📺 عنوان الفيديو\n"
+        no_results_text += "• 📝 وصف الفيديو (الكابشن)\n"
+        no_results_text += "• 📄 اسم الملف\n"
+        no_results_text += "• 🏷️ البيانات الوصفية"
         
         markup = types.InlineKeyboardMarkup()
         btn_categories = types.InlineKeyboardButton("📚 التصنيفات", callback_data="categories")
@@ -50,9 +57,15 @@ def handle_text_message(bot, message):
                              reply_markup=markup, parse_mode='Markdown')
         return
     
-    # تنسيق النتائج
+    # تنسيق النتائج المحسن
     text = f"🔍 **نتائج البحث عن:** {query}\n"
-    text += f"📊 تم العثور على **{len(results)}** نتيجة\n\n"
+    text += f"📊 تم العثور على **{total_count}** نتيجة"
+    if total_count > 15:
+        text += f" (عرض أول 15)\n\n"
+    else:
+        text += "\n\n"
+    
+    text += "🎯 **البحث تم في:** العنوان، الوصف، اسم الملف، البيانات\n\n"
     
     markup = types.InlineKeyboardMarkup()
     
@@ -61,20 +74,30 @@ def handle_text_message(bot, message):
         title = title[:50] + "..." if len(title) > 50 else title
         
         views = video[3] if video[3] else 0
-        size = f" | 💾 {video[5]//1024//1024:.0f}MB" if video[5] and video[5] > 0 else ""
-        date = f" | 📅 {video[7].strftime('%m/%d')}" if len(video) > 7 and video[7] else ""
         
-        text += f"**{i}.** {title}\n   👁️ {views:,}{size}{date}\n\n"
+        # عرض معلومات إضافية
+        extra_info = ""
+        if len(video) > 5 and video[5] and video[5] > 0:  # file_size
+            extra_info += f" | 💾 {video[5]//1024//1024:.0f}MB"
+        if len(video) > 7 and video[7]:  # upload_date
+            extra_info += f" | 📅 {video[7].strftime('%m/%d')}"
         
-        btn = types.InlineKeyboardButton(f"📺 {title[:25]}...", callback_data=f"video_{video[0]}")
+        text += f"**{i}.** {title}\n   👁️ {views:,}{extra_info}\n\n"
+        
+        btn = types.InlineKeyboardButton(f"📺 {i}. {title[:25]}...", callback_data=f"video_{video[0]}")
         markup.add(btn)
     
-    if len(results) > 10:
-        text += f"**... و {len(results) - 10} نتيجة أخرى**\n"
+    if total_count > 10:
+        text += f"**... و {total_count - 10} نتيجة أخرى**\n"
     
-    btn_more = types.InlineKeyboardButton("🔍 بحث متقدم", callback_data="search")
-    btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
-    markup.add(btn_more, btn_back)
+    # أزرار إضافية
+    buttons_row = []
+    if total_count > 15:
+        buttons_row.append(types.InlineKeyboardButton("🔍 بحث متقدم", callback_data="search"))
+    buttons_row.append(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+    
+    if len(buttons_row) > 0:
+        markup.add(*buttons_row)
     
     bot.edit_message_text(text, wait_msg.chat.id, wait_msg.message_id, 
                          reply_markup=markup, parse_mode='Markdown')
@@ -89,43 +112,64 @@ def handle_search_input(bot, message, query):
         del user_states[user_id]
     
     # تنفيذ البحث المتقدم
-    wait_msg = bot.reply_to(message, "🔍 جاري البحث المتقدم...")
+    wait_msg = bot.reply_to(message, "🎯 جاري البحث المتقدم الشامل...")
     
-    results = VideoService.search_videos(query, limit=20)
+    results = VideoService.search_videos(query, limit=25)
+    total_count = VideoService.get_search_count(query)
     
     if not results:
-        bot.edit_message_text(f"❌ لم يتم العثور على نتائج للبحث: **{query}**", 
+        bot.edit_message_text(f"❌ لم يتم العثور على نتائج للبحث المتقدم: **{query}**\n\n"
+                             f"🔍 تم البحث في جميع الحقول: العنوان، الوصف، اسم الملف، البيانات الوصفية", 
                              wait_msg.chat.id, wait_msg.message_id, parse_mode='Markdown')
         return
     
     # عرض النتائج مع خيارات متقدمة
-    show_search_results(bot, wait_msg.chat.id, wait_msg.message_id, results, query)
+    show_advanced_search_results(bot, wait_msg.chat.id, wait_msg.message_id, results, query, total_count)
 
 
-def show_search_results(bot, chat_id, message_id, results, query):
-    """عرض نتائج البحث مع التحكم"""
+def show_advanced_search_results(bot, chat_id, message_id, results, query, total_count):
+    """عرض نتائج البحث المتقدم مع التحكم الكامل"""
+    per_page = 12
+    total_pages = math.ceil(total_count / per_page) if total_count > 0 else 1
+    
     text = f"🎯 **نتائج البحث المتقدم:** {query}\n"
-    text += f"📊 العدد: **{len(results)}** نتيجة\n\n"
+    text += f"📊 العدد الإجمالي: **{total_count}** نتيجة\n"
+    text += f"📄 عرض أول {min(len(results), per_page)} نتيجة\n\n"
+    text += f"🔍 **البحث الشامل في:** العنوان، الوصف، اسم الملف، البيانات\n\n"
     
     markup = types.InlineKeyboardMarkup()
     
-    # أول 8 نتائج
-    for i, video in enumerate(results[:8], 1):
+    # أول 12 نتيجة
+    for i, video in enumerate(results[:per_page], 1):
         title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-        title_short = title[:40] + "..." if len(title) > 40 else title
+        title_short = title[:35] + "..." if len(title) > 35 else title
         
-        text += f"**{i}.** {title_short}\n"
+        views = video[3] if video[3] else 0
+        extra_info = f"👁️ {views:,}"
+        
+        if len(video) > 5 and video[5] and video[5] > 0:
+            extra_info += f" | 💾 {video[5]//1024//1024:.0f}MB"
+        
+        text += f"**{i}.** {title_short}\n   {extra_info}\n\n"
         
         btn = types.InlineKeyboardButton(f"{i}. {title[:20]}...", callback_data=f"video_{video[0]}")
         
-        if i % 2 == 1 and i < len(results[:8]):
-            # إضافة زرين في صف واحد
-            next_video = results[i] if i < len(results[:8]) else None
+        # إضافة زرين في صف واحد
+        if i % 2 == 1 and i < len(results[:per_page]):
+            next_video = results[i] if i < len(results[:per_page]) else None
             if next_video:
                 next_title = next_video[1] if next_video[1] else (next_video[4] if next_video[4] else f"فيديو {next_video[0]}")
-                btn2 = types.InlineKeyboardButton(f"{i+1}. {next_title[:20]}...", callback_data=f"video_{next_video[0]}")
+                next_title_short = next_title[:20] + "..." if len(next_title) > 20 else next_title
+                btn2 = types.InlineKeyboardButton(f"{i+1}. {next_title_short}", callback_data=f"video_{next_video[0]}")
                 markup.add(btn, btn2)
-                text += f"**{i+1}.** {next_title[:40] + '...' if len(next_title) > 40 else next_title}\n"
+                
+                # إضافة معلومات الفيديو الثاني للنص
+                next_views = next_video[3] if next_video[3] else 0
+                next_extra_info = f"👁️ {next_views:,}"
+                if len(next_video) > 5 and next_video[5] and next_video[5] > 0:
+                    next_extra_info += f" | 💾 {next_video[5]//1024//1024:.0f}MB"
+                
+                text += f"**{i+1}.** {next_title[:35] + '...' if len(next_title) > 35 else next_title}\n   {next_extra_info}\n\n"
             else:
                 markup.add(btn)
         elif i % 2 == 0:
@@ -133,8 +177,19 @@ def show_search_results(bot, chat_id, message_id, results, query):
             pass
         else:
             markup.add(btn)
-        
-        text += "\n"
+    
+    # معلومات إضافية
+    if total_count > per_page:
+        text += f"📋 **للاطلاع على جميع النتائج البالغة {total_count} نتيجة، استخدم كلمات بحث أكثر تحديداً**\n\n"
+    
+    # أزرار التحكم
+    control_buttons = []
+    if total_count > per_page:
+        control_buttons.append(types.InlineKeyboardButton("🔍 تحسين البحث", callback_data="search"))
+    control_buttons.append(types.InlineKeyboardButton("📚 التصنيفات", callback_data="categories"))
+    
+    if len(control_buttons) > 0:
+        markup.add(*control_buttons)
     
     btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
     markup.add(btn_back)
@@ -143,6 +198,6 @@ def show_search_results(bot, chat_id, message_id, results, query):
 
 
 def register_text_handlers(bot):
-    """تسجيل معالجات النصوص"""
+    """تسجيل معالجات النصوص المحسنة"""
     bot.message_handler(content_types=['text'])(lambda message: handle_text_message(bot, message))
-    print("✅ تم تسجيل معالجات النصوص")
+    logger.info("✅ تم تسجيل معالجات النصوص المحسنة")

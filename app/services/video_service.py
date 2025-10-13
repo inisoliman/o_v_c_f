@@ -1,5 +1,5 @@
 """
-خدمات الفيديوهات
+خدمات الفيديوهات مع بحث محسن
 """
 import logging
 from typing import List, Optional, Tuple, Dict
@@ -10,32 +10,77 @@ logger = logging.getLogger(__name__)
 
 
 class VideoService:
-    """خدمة إدارة الفيديوهات"""
+    """خدمة إدارة الفيديوهات مع بحث محسن"""
     
     @staticmethod
-    def search_videos(query: str, category_id: Optional[int] = None, limit: int = 20) -> List[Tuple]:
-        """البحث في الفيديوهات"""
+    def search_videos(query: str, category_id: Optional[int] = None, limit: int = 20, page: int = 1) -> List[Tuple]:
+        """البحث المحسن في الفيديوهات - يبحث في العنوان والوصف واسم الملف"""
         try:
             with get_db_cursor() as cursor:
-                where_clause = "(title ILIKE %s OR caption ILIKE %s OR file_name ILIKE %s)"
-                params = [f"%{query}%", f"%{query}%", f"%{query}%"]
+                offset = (page - 1) * limit
+                
+                # بحث شامل في جميع الحقول المهمة
+                where_clause = """
+                (
+                    title ILIKE %s OR 
+                    caption ILIKE %s OR 
+                    file_name ILIKE %s OR
+                    metadata::text ILIKE %s
+                )
+                """
+                params = [f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"]
                 
                 if category_id:
                     where_clause += " AND category_id = %s"
                     params.append(category_id)
                 
                 cursor.execute(f"""
-                    SELECT id, title, caption, view_count, file_name, file_size, category_id, upload_date
+                    SELECT id, title, caption, view_count, file_name, file_size, 
+                           category_id, upload_date, file_id, message_id
                     FROM video_archive 
                     WHERE {where_clause}
-                    ORDER BY view_count DESC, upload_date DESC
-                    LIMIT %s
-                """, params + [limit])
+                    ORDER BY 
+                        CASE 
+                            WHEN title ILIKE %s THEN 1
+                            WHEN caption ILIKE %s THEN 2
+                            WHEN file_name ILIKE %s THEN 3
+                            ELSE 4
+                        END,
+                        view_count DESC, 
+                        upload_date DESC
+                    LIMIT %s OFFSET %s
+                """, params + [f"%{query}%", f"%{query}%", f"%{query}%", limit, offset])
                 
                 return cursor.fetchall()
         except Exception as e:
             logger.error(f"❌ خطأ في البحث: {e}")
             return []
+    
+    @staticmethod
+    def get_search_count(query: str, category_id: Optional[int] = None) -> int:
+        """الحصول على عدد نتائج البحث الإجمالي"""
+        try:
+            with get_db_cursor() as cursor:
+                where_clause = """
+                (
+                    title ILIKE %s OR 
+                    caption ILIKE %s OR 
+                    file_name ILIKE %s OR
+                    metadata::text ILIKE %s
+                )
+                """
+                params = [f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"]
+                
+                if category_id:
+                    where_clause += " AND category_id = %s"
+                    params.append(category_id)
+                
+                cursor.execute(f"SELECT COUNT(*) FROM video_archive WHERE {where_clause}", params)
+                
+                return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"❌ خطأ في عدد البحث: {e}")
+            return 0
     
     @staticmethod
     def get_video_by_id(video_id: int) -> Optional[Tuple]:
@@ -45,7 +90,8 @@ class VideoService:
                 cursor.execute("""
                     SELECT v.id, v.message_id, v.caption, v.chat_id, v.file_name, v.file_id, 
                            v.category_id, v.metadata, v.view_count, v.title, v.grouping_key, 
-                           v.upload_date, c.name as category_name, v.file_size
+                           v.upload_date, c.name as category_name, c.full_path as category_path,
+                           v.file_size
                     FROM video_archive v
                     LEFT JOIN categories c ON v.category_id = c.id
                     WHERE v.id = %s
@@ -57,22 +103,35 @@ class VideoService:
             return None
     
     @staticmethod
-    def get_videos_by_category(category_id: int, limit: int = 20) -> List[Tuple]:
-        """الحصول على فيديوهات تصنيف معين"""
+    def get_videos_by_category(category_id: int, limit: int = 20, page: int = 1) -> List[Tuple]:
+        """الحصول على فيديوهات تصنيف معين مع التصفح"""
         try:
             with get_db_cursor() as cursor:
+                offset = (page - 1) * limit
+                
                 cursor.execute("""
-                    SELECT id, title, caption, view_count, file_name, upload_date
+                    SELECT id, title, caption, view_count, file_name, upload_date, file_id
                     FROM video_archive 
                     WHERE category_id = %s
                     ORDER BY view_count DESC, upload_date DESC
-                    LIMIT %s
-                """, (category_id, limit))
+                    LIMIT %s OFFSET %s
+                """, (category_id, limit, offset))
                 
                 return cursor.fetchall()
         except Exception as e:
             logger.error(f"❌ خطأ في فيديوهات التصنيف: {e}")
             return []
+    
+    @staticmethod
+    def get_category_videos_count(category_id: int) -> int:
+        """الحصول على عدد فيديوهات التصنيف"""
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM video_archive WHERE category_id = %s", (category_id,))
+                return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"❌ خطأ في عدد فيديوهات التصنيف: {e}")
+            return 0
     
     @staticmethod
     def update_view_count(video_id: int) -> bool:
