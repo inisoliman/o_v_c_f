@@ -19,33 +19,23 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = Field(..., description="رابط قاعدة البيانات")
     
-    # Redis (Optional)
-    REDIS_URL: Optional[str] = Field(None, description="رابط Redis للتخزين المؤقت")
-    
     # App Settings
     DEBUG: bool = Field(False, description="وضع التطوير")
     ENVIRONMENT: str = Field("production", description="بيئة التشغيل")
     LOG_LEVEL: str = Field("INFO", description="مستوى التسجيل")
     
-    # File Upload
-    MAX_FILE_SIZE_MB: int = Field(2000, description="أقصى حجم ملف بالميجابايت")
-    ALLOWED_VIDEO_FORMATS: str = Field(
-        "mp4,mkv,avi,mov,wmv,flv,webm,m4v",
-        description="صيغ الفيديو المسموحة"
-    )
-    
     # Features
     AUTO_DELETE_HISTORY_DAYS: int = Field(15, description="مدة حفظ التاريخ بالأيام")
-    MAX_FAVORITES_PER_USER: int = Field(1000, description="أقصى عدد مفضلات للمستخدم")
+    MAX_FAVORITES_PER_USER: int = Field(1000, description="أقصى عدد مفضلات")
     ENABLE_NOTIFICATIONS: bool = Field(True, description="تفعيل الإشعارات")
+    
+    # Admin Features
+    ADMIN_LOG_CHANNEL: Optional[int] = Field(None, description="قناة تسجيل أنشطة الإدارة")
+    BACKUP_INTERVAL_HOURS: int = Field(24, description="فترة النسخ الاحتياطي بالساعات")
     
     # Security
     SECRET_KEY: str = Field(..., description="المفتاح السري للتطبيق")
     RATE_LIMIT_REQUESTS: int = Field(30, description="عدد الطلبات المسموحة")
-    RATE_LIMIT_WINDOW: int = Field(60, description="نافزة الوقت للطلبات بالثواني")
-    
-    # External Services
-    TMDB_API_KEY: Optional[str] = Field(None, description="مفتاح TMDB للمعلومات")
     
     @property
     def admin_list(self) -> List[int]:
@@ -54,11 +44,6 @@ class Settings(BaseSettings):
             return [int(x.strip()) for x in self.ADMIN_IDS.split(",") if x.strip()]
         except:
             return []
-    
-    @property
-    def allowed_formats(self) -> List[str]:
-        """قائمة الصيغ المسموحة"""
-        return [x.strip().lower() for x in self.ALLOWED_VIDEO_FORMATS.split(",")]
     
     class Config:
         env_file = ".env"
