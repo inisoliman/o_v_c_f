@@ -8,7 +8,6 @@ import logging
 import requests
 from datetime import datetime
 from flask import Flask, jsonify
-from app.services.stats_service import StatsService
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,13 @@ app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    stats = StatsService.get_general_stats()
+    # استيراد محلي لتجنب circular imports
+    try:
+        from app.services.stats_service import StatsService
+        stats = StatsService.get_general_stats()
+    except:
+        stats = {'videos': 0, 'users': 0, 'categories': 0}
+    
     return jsonify({
         "status": "alive ✅",
         "service": "Telegram Video Archive Bot",
@@ -32,8 +37,11 @@ def home():
 
 @app_flask.route('/health')
 def health_check():
-    from app.database.connection import check_database
-    db_status = "connected ✅" if check_database() else "disconnected ❌"
+    try:
+        from app.database.connection import check_database
+        db_status = "connected ✅" if check_database() else "disconnected ❌"
+    except:
+        db_status = "unknown ❓"
     
     return jsonify({
         "status": "healthy",
@@ -54,8 +62,15 @@ def ping():
 
 @app_flask.route('/stats')
 def stats_endpoint():
-    stats = StatsService.get_general_stats()
-    return jsonify(stats)
+    try:
+        from app.services.stats_service import StatsService
+        stats = StatsService.get_general_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({
+            "error": f"Failed to get stats: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        })
 
 
 def run_flask():

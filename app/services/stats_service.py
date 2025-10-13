@@ -2,12 +2,9 @@
 خدمات الإحصائيات
 """
 import logging
-from typing import Dict
+from typing import Dict, List
 from datetime import datetime
 from app.database.connection import get_db_cursor
-from app.services.video_service import VideoService
-from app.services.user_service import UserService
-from app.services.category_service import CategoryService
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +39,24 @@ class StatsService:
                 }
         except Exception as e:
             logger.error(f"❌ خطأ في الإحصائيات العامة: {e}")
-            return {}
+            return {
+                'videos': 0,
+                'users': 0,
+                'categories': 0,
+                'favorites': 0,
+                'total_views': 0,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M')
+            }
     
     @staticmethod
     def get_detailed_stats() -> Dict:
         """الإحصائيات التفصيلية للإدارة"""
         try:
+            # استيراد الخدمات محلياً لتجنب circular imports
+            from app.services.video_service import VideoService
+            from app.services.user_service import UserService
+            from app.services.category_service import CategoryService
+            
             video_stats = VideoService.get_video_stats()
             user_stats = UserService.get_user_stats()
             category_stats = CategoryService.get_category_stats()
@@ -64,7 +73,16 @@ class StatsService:
             }
         except Exception as e:
             logger.error(f"❌ خطأ في الإحصائيات التفصيلية: {e}")
-            return {}
+            return {
+                'videos': {},
+                'users': {},
+                'categories': {},
+                'system': {
+                    'last_updated': datetime.now().isoformat(),
+                    'uptime_hours': 0,
+                    'database_status': 'error'
+                }
+            }
     
     @staticmethod
     def get_activity_stats(days: int = 7) -> Dict:
@@ -99,7 +117,7 @@ class StatsService:
             return {}
     
     @staticmethod
-    def get_popular_categories(limit: int = 10) -> List:
+    def get_popular_categories(limit: int = 10) -> List[Dict]:
         """التصنيفات الأكثر شعبية"""
         try:
             with get_db_cursor() as cursor:
@@ -129,10 +147,20 @@ class StatsService:
     @staticmethod
     def export_stats() -> Dict:
         """تصدير جميع الإحصائيات للنسخ الاحتياطي"""
-        return {
-            'general': StatsService.get_general_stats(),
-            'detailed': StatsService.get_detailed_stats(),
-            'activity': StatsService.get_activity_stats(30),
-            'popular_categories': StatsService.get_popular_categories(20),
-            'export_timestamp': datetime.now().isoformat()
-        }
+        try:
+            return {
+                'general': StatsService.get_general_stats(),
+                'detailed': StatsService.get_detailed_stats(),
+                'activity': StatsService.get_activity_stats(30),
+                'popular_categories': StatsService.get_popular_categories(20),
+                'export_timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"❌ خطأ في تصدير الإحصائيات: {e}")
+            return {
+                'general': {},
+                'detailed': {},
+                'activity': {},
+                'popular_categories': [],
+                'export_timestamp': datetime.now().isoformat()
+            }
