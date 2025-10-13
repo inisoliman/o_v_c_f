@@ -5,7 +5,6 @@ import psycopg2
 import logging
 from typing import Optional
 from contextlib import contextmanager
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +12,8 @@ logger = logging.getLogger(__name__)
 def get_db_connection():
     """الاتصال بقاعدة البيانات"""
     try:
-        conn = psycopg2.connect(settings.DATABASE_URL)
+        import main
+        conn = psycopg2.connect(main.DATABASE_URL)
         return conn
     except Exception as e:
         logger.error(f"❌ خطأ في الاتصال بقاعدة البيانات: {e}")
