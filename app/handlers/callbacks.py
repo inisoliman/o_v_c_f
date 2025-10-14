@@ -1,5 +1,5 @@
 """
-معالج شامل لجميع أزرار البوت مع دعم التصفح
+معالج شامل لجميع أزرار البوت مع دعم التصفح - مُحدَث
 """
 import logging
 import math
@@ -21,8 +21,14 @@ def handle_callback_query(bot, call):
         if data == "main_menu":
             # العودة للقائمة الرئيسية
             from app.handlers.start import start_command
+            # إنشاء mock message object
+            mock_message = type('MockMessage', (), {
+                'from_user': call.from_user,
+                'chat': call.message.chat,
+                'message_id': call.message.message_id
+            })()
             bot.delete_message(call.message.chat.id, call.message.message_id)
-            start_command(bot, call.message)
+            start_command(bot, mock_message)
             
         elif data == "search":
             handle_search_menu(bot, call)
@@ -53,7 +59,10 @@ def handle_callback_query(bot, call):
             handle_help_menu(bot, call)
             
         elif data.startswith("video_"):
-            handle_video_details(bot, call, user_id)
+            # استخدام الدالة من video_handler
+            from app.handlers.video_handler import handle_video_details
+            video_id = int(data.replace("video_", ""))
+            handle_video_details(bot, call, user_id, video_id)
             
         elif data.startswith("category_"):
             if "_page_" in data:
@@ -68,15 +77,23 @@ def handle_callback_query(bot, call):
                 handle_category_videos(bot, call, category_id)
             
         elif data.startswith("download_"):
-            handle_video_download(bot, call)
+            # استخدام الدالة من video_handler
+            from app.handlers.video_handler import handle_video_download
+            video_id = int(data.replace("download_", ""))
+            handle_video_download(bot, call, video_id)
             
         elif data.startswith("favorite_"):
-            handle_toggle_favorite(bot, call, user_id)
+            # استخدام الدالة من video_handler
+            from app.handlers.video_handler import handle_toggle_favorite
+            video_id = int(data.replace("favorite_", ""))
+            handle_toggle_favorite(bot, call, user_id, video_id)
             
         else:
             bot.answer_callback_query(call.id, "🔄 هذه الميزة قيد التطوير")
         
-        bot.answer_callback_query(call.id)
+        # عدم استدعاء answer_callback_query للفيديوهات لأنها تتعامل معه بنفسها
+        if not data.startswith(("video_", "download_", "favorite_")):
+            bot.answer_callback_query(call.id)
         
     except Exception as e:
         logger.error(f"❌ خطأ في معالج الأزرار: {e}")
@@ -134,7 +151,6 @@ def handle_categories_menu(bot, call, page: int = 1):
         for category in categories:
             cat_name = category[1][:25] + "..." if len(category[1]) > 25 else category[1]
             video_count = category[4] if len(category) > 4 else 0
-            subcategory_count = category[5] if len(category) > 5 else 0
             
             display_text = f"📁 {cat_name}"
             if video_count > 0:
@@ -230,77 +246,6 @@ def handle_category_videos(bot, call, category_id: int, page: int = 1):
     except Exception as e:
         logger.error(f"❌ خطأ في فيديوهات التصنيف: {e}")
         bot.edit_message_text("❌ حدث خطأ في عرض الفيديوهات", 
-                            call.message.chat.id, call.message.message_id)
-
-
-def handle_video_details(bot, call, user_id):
-    """معالج تفاصيل الفيديو"""
-    try:
-        from app.services.video_service import VideoService
-        from app.services.user_service import UserService
-        
-        video_id = int(call.data.replace("video_", ""))
-        video = VideoService.get_video_by_id(video_id)
-        
-        if not video:
-            bot.answer_callback_query(call.id, "❌ الفيديو غير موجود")
-            return
-        
-        # زيادة عداد المشاهدة وإضافة للسجل
-        VideoService.update_view_count(video_id)
-        UserService.add_to_history(user_id, video_id)
-        
-        # تنسيق معلومات الفيديو
-        title = video[9] if len(video) > 9 and video[9] else (video[4] if video[4] else f"فيديو {video[0]}")
-        text = f"🎬 **{title}**\n\n"
-        
-        if video[2]:  # caption/description
-            desc = video[2][:200] + "..." if len(video[2]) > 200 else video[2]
-            text += f"📝 **الوصف:**\n{desc}\n\n"
-        
-        # معلومات إضافية
-        if len(video) > 12 and video[12]:  # category_name
-            text += f"📚 **التصنيف:** {video[12]}\n"
-        
-        if video[4]:  # file_name
-            file_name = video[4][:50] + "..." if len(video[4]) > 50 else video[4]
-            text += f"📄 **اسم الملف:** {file_name}\n"
-        
-        text += f"\n📊 **الإحصائيات:**\n"
-        text += f"👁️ **المشاهدات:** {video[8]:,}\n"  # view_count
-        
-        if len(video) > 11 and video[11]:  # upload_date
-            upload_date = video[11].strftime('%Y-%m-%d')
-            text += f"📅 **تاريخ الرفع:** {upload_date}\n"
-        
-        # فحص إذا كان في المفضلة
-        is_fav = UserService.is_favorite(user_id, video_id)
-        fav_text = "❤️ إزالة من المفضلة" if is_fav else "💖 إضافة للمفضلة"
-        
-        markup = types.InlineKeyboardMarkup()
-        
-        # أزرار التحكم
-        buttons_row1 = []
-        
-        if video[5]:  # file_id exists - يمكن التحميل
-            btn_download = types.InlineKeyboardButton("📥 تحميل", callback_data=f"download_{video_id}")
-            buttons_row1.append(btn_download)
-        
-        btn_favorite = types.InlineKeyboardButton(fav_text, callback_data=f"favorite_{video_id}")
-        buttons_row1.append(btn_favorite)
-        
-        if len(buttons_row1) > 0:
-            markup.add(*buttons_row1)
-        
-        # زر العودة
-        btn_back = types.InlineKeyboardButton("🔙 رجوع", callback_data="main_menu")
-        markup.add(btn_back)
-        
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                            reply_markup=markup, parse_mode='Markdown')
-    except Exception as e:
-        logger.error(f"❌ خطأ في تفاصيل الفيديو: {e}")
-        bot.edit_message_text("❌ حدث خطأ في عرض الفيديو", 
                             call.message.chat.id, call.message.message_id)
 
 
@@ -518,7 +463,8 @@ def handle_help_menu(bot, call):
 **🤖 النظام:**
 ✅ يعمل 24/7 بـ Webhooks
 ✅ بدون تضارب
-✅ استجابة فورية"""
+✅ استجابة فورية
+✅ معالجة ذكية للبيانات pymediainfo"""
     
     markup = types.InlineKeyboardMarkup()
     btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
@@ -528,60 +474,10 @@ def handle_help_menu(bot, call):
                         reply_markup=markup, parse_mode='Markdown')
 
 
-def handle_video_download(bot, call):
-    """معالج تحميل الفيديو"""
-    try:
-        from app.services.video_service import VideoService
-        
-        video_id = int(call.data.replace("download_", ""))
-        video = VideoService.get_video_by_id(video_id)
-        
-        if not video or not video[5]:  # لا يوجد file_id
-            bot.answer_callback_query(call.id, "❌ الفيديو غير متاح للتحميل", show_alert=True)
-            return
-        
-        # إرسال الفيديو
-        title = video[9] if len(video) > 9 and video[9] else (video[4] if video[4] else f"فيديو {video[0]}")
-        caption = f"🎬 **{title}**\n\n📥 **من أرشيف الفيديوهات**"
-        
-        bot.send_document(
-            chat_id=call.message.chat.id,
-            document=video[5],  # file_id
-            caption=caption,
-            parse_mode="Markdown"
-        )
-        
-        bot.answer_callback_query(call.id, "✅ تم إرسال الفيديو!")
-        
-    except Exception as e:
-        logger.error(f"❌ خطأ في إرسال الفيديو: {e}")
-        bot.answer_callback_query(call.id, "❌ حدث خطأ أثناء التحميل")
-
-
-def handle_toggle_favorite(bot, call, user_id):
-    """معالج إضافة/إزالة المفضلة"""
-    try:
-        from app.services.user_service import UserService
-        
-        video_id = int(call.data.replace("favorite_", ""))
-        
-        # تغيير حالة المفضلة
-        is_added = UserService.toggle_favorite(user_id, video_id)
-        
-        if is_added:
-            bot.answer_callback_query(call.id, "✅ تم إضافة للمفضلة!")
-        else:
-            bot.answer_callback_query(call.id, "❌ تم إزالة من المفضلة")
-        
-        # إعادة تحميل صفحة الفيديو
-        handle_video_details(bot, call, user_id)
-        
-    except Exception as e:
-        logger.error(f"❌ خطأ في المفضلة: {e}")
-        bot.answer_callback_query(call.id, "❌ حدث خطأ")
-
-
 def register_all_callbacks(bot):
     """تسجيل معالجات الأزرار"""
-    bot.callback_query_handler(func=lambda call: True)(lambda call: handle_callback_query(bot, call))
-    logger.info("✅ تم تسجيل معالجات الأزرار")
+    try:
+        bot.callback_query_handler(func=lambda call: True)(lambda call: handle_callback_query(bot, call))
+        logger.info("✅ تم تسجيل معالجات الأزرار بنجاح")
+    except Exception as e:
+        logger.error(f"❌ خطأ في تسجيل معالجات الأزرار: {e}")
