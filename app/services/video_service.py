@@ -1,5 +1,5 @@
 """
-خدمات الفيديوهات مع بحث محسن
+خدمات الفيديوهات مع بحث محسن - إصدار مُصحح
 """
 import logging
 from typing import List, Optional, Tuple, Dict
@@ -19,7 +19,7 @@ class VideoService:
             with get_db_cursor() as cursor:
                 offset = (page - 1) * limit
                 
-                # بحث شامل في جميع الحقول المهمة
+                # بحث شامل في جميع الحقول المهمة (بدون file_size)
                 where_clause = """
                 (
                     title ILIKE %s OR 
@@ -35,7 +35,7 @@ class VideoService:
                     params.append(category_id)
                 
                 cursor.execute(f"""
-                    SELECT id, title, caption, view_count, file_name, file_size, 
+                    SELECT id, title, caption, view_count, file_name, 
                            category_id, upload_date, file_id, message_id
                     FROM video_archive 
                     WHERE {where_clause}
@@ -90,8 +90,7 @@ class VideoService:
                 cursor.execute("""
                     SELECT v.id, v.message_id, v.caption, v.chat_id, v.file_name, v.file_id, 
                            v.category_id, v.metadata, v.view_count, v.title, v.grouping_key, 
-                           v.upload_date, c.name as category_name, c.full_path as category_path,
-                           v.file_size
+                           v.upload_date, c.name as category_name, c.full_path as category_path
                     FROM video_archive v
                     LEFT JOIN categories c ON v.category_id = c.id
                     WHERE v.id = %s
@@ -209,7 +208,7 @@ class VideoService:
     
     @staticmethod
     def get_video_stats() -> Dict:
-        """إحصائيات الفيديوهات التفصيلية"""
+        """إحصائيات الفيديوهات التفصيلية - بدون file_size"""
         try:
             with get_db_cursor() as cursor:
                 cursor.execute("""
@@ -217,8 +216,7 @@ class VideoService:
                         COUNT(*) as total_videos,
                         SUM(view_count) as total_views,
                         AVG(view_count) as avg_views,
-                        COUNT(DISTINCT category_id) as categories_used,
-                        SUM(CASE WHEN file_size IS NOT NULL THEN file_size ELSE 0 END) as total_size
+                        COUNT(DISTINCT category_id) as categories_used
                     FROM video_archive
                 """)
                 
@@ -227,9 +225,27 @@ class VideoService:
                     'total_videos': result[0] or 0,
                     'total_views': result[1] or 0,
                     'avg_views': round(result[2] or 0, 2),
-                    'categories_used': result[3] or 0,
-                    'total_size_gb': round((result[4] or 0) / (1024**3), 2)
+                    'categories_used': result[3] or 0
                 }
         except Exception as e:
             logger.error(f"❌ خطأ في إحصائيات الفيديو: {e}")
             return {}
+    
+    @staticmethod
+    def add_video(message_id: int, caption: str, chat_id: int, file_name: str, 
+                  file_id: str, category_id: int, metadata: dict, title: str, 
+                  grouping_key: str) -> bool:
+        """إضافة فيديو جديد للأرشيف"""
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO video_archive 
+                    (message_id, caption, chat_id, file_name, file_id, category_id, 
+                     metadata, title, grouping_key, upload_date, view_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), 0)
+                """, (message_id, caption, chat_id, file_name, file_id, category_id, 
+                     metadata, title, grouping_key))
+                return True
+        except Exception as e:
+            logger.error(f"❌ خطأ في إضافة الفيديو: {e}")
+            return False
