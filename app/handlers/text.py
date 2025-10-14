@@ -1,5 +1,5 @@
 """
-معالج الرسائل النصية والبحث المحسن
+معالج الرسائل النصية والبحث المحسن - مُصحح
 """
 import logging
 import math
@@ -30,77 +30,82 @@ def handle_text_message(bot, message):
     # بحث سريع محسن
     wait_msg = bot.reply_to(message, "🔍 جاري البحث الذكي في الأرشيف...")
     
-    results = VideoService.search_videos(query, limit=15)
-    total_count = VideoService.get_search_count(query)
-    
-    if not results:
-        no_results_text = f"❌ **لم يتم العثور على نتائج للبحث:** {query}\n\n"
-        no_results_text += "💡 **اقتراحات للبحث:**\n"
-        no_results_text += "• جرب كلمات مختلفة أو مرادفات\n"
-        no_results_text += "• ابحث بالإنجليزية أو العربية\n"
-        no_results_text += "• استخدم كلمات أقل وأكثر عمومية\n"
-        no_results_text += "• تصفح التصنيفات أو الأشهر\n\n"
-        no_results_text += "🎯 **البحث يتم في:**\n"
-        no_results_text += "• 📺 عنوان الفيديو\n"
-        no_results_text += "• 📝 وصف الفيديو (الكابشن)\n"
-        no_results_text += "• 📄 اسم الملف\n"
-        no_results_text += "• 🏷️ البيانات الوصفية"
+    try:
+        results = VideoService.search_videos(query, limit=15)
+        total_count = VideoService.get_search_count(query)
+        
+        if not results:
+            no_results_text = f"❌ **لم يتم العثور على نتائج للبحث:** {query}\n\n"
+            no_results_text += "💡 **اقتراحات للبحث:**\n"
+            no_results_text += "• جرب كلمات مختلفة أو مرادفات\n"
+            no_results_text += "• ابحث بالإنجليزية أو العربية\n"
+            no_results_text += "• استخدم كلمات أقل وأكثر عمومية\n"
+            no_results_text += "• تصفح التصنيفات أو الأشهر\n\n"
+            no_results_text += "🎯 **البحث يتم في:**\n"
+            no_results_text += "• 📺 عنوان الفيديو\n"
+            no_results_text += "• 📝 وصف الفيديو (الكابشن)\n"
+            no_results_text += "• 📄 اسم الملف\n"
+            no_results_text += "• 🏷️ البيانات الوصفية"
+            
+            markup = types.InlineKeyboardMarkup()
+            btn_categories = types.InlineKeyboardButton("📚 التصنيفات", callback_data="categories")
+            btn_popular = types.InlineKeyboardButton("🔥 الأشهر", callback_data="popular")
+            btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
+            markup.add(btn_categories, btn_popular)
+            markup.add(btn_back)
+            
+            bot.edit_message_text(no_results_text, chat_id, message_id, 
+                                 reply_markup=markup, parse_mode='Markdown')
+            return
+        
+        # تنسيق النتائج المحسن
+        text = f"🔍 **نتائج البحث عن:** {query}\n"
+        text += f"📊 تم العثور على **{total_count}** نتيجة"
+        if total_count > 15:
+            text += f" (عرض أول 15)\n\n"
+        else:
+            text += "\n\n"
+        
+        text += "🎯 **البحث تم في:** العنوان، الوصف، اسم الملف، البيانات\n\n"
         
         markup = types.InlineKeyboardMarkup()
-        btn_categories = types.InlineKeyboardButton("📚 التصنيفات", callback_data="categories")
-        btn_popular = types.InlineKeyboardButton("🔥 الأشهر", callback_data="popular")
-        btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
-        markup.add(btn_categories, btn_popular)
-        markup.add(btn_back)
         
-        bot.edit_message_text(no_results_text, wait_msg.chat.id, wait_msg.message_id, 
+        for i, video in enumerate(results[:10], 1):
+            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+            title = title[:50] + "..." if len(title) > 50 else title
+            
+            views = video[3] if video[3] else 0
+            
+            # عرض معلومات بسيطة (بدون file_size)
+            extra_info = ""
+            if len(video) > 7 and video[7]:  # upload_date
+                try:
+                    extra_info += f" | 📅 {video[7].strftime('%m/%d')}"
+                except:
+                    pass
+            
+            text += f"**{i}.** {title}\n   👁️ {views:,}{extra_info}\n\n"
+            
+            btn = types.InlineKeyboardButton(f"📺 {i}. {title[:25]}...", callback_data=f"video_{video[0]}")
+            markup.add(btn)
+        
+        if total_count > 10:
+            text += f"**... و {total_count - 10} نتيجة أخرى**\n"
+        
+        # أزرار إضافية
+        buttons_row = []
+        if total_count > 15:
+            buttons_row.append(types.InlineKeyboardButton("🔍 بحث متقدم", callback_data="search"))
+        buttons_row.append(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+        
+        if len(buttons_row) > 0:
+            markup.add(*buttons_row)
+        
+        bot.edit_message_text(text, chat_id, message_id, 
                              reply_markup=markup, parse_mode='Markdown')
-        return
-    
-    # تنسيق النتائج المحسن
-    text = f"🔍 **نتائج البحث عن:** {query}\n"
-    text += f"📊 تم العثور على **{total_count}** نتيجة"
-    if total_count > 15:
-        text += f" (عرض أول 15)\n\n"
-    else:
-        text += "\n\n"
-    
-    text += "🎯 **البحث تم في:** العنوان، الوصف، اسم الملف، البيانات\n\n"
-    
-    markup = types.InlineKeyboardMarkup()
-    
-    for i, video in enumerate(results[:10], 1):
-        title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-        title = title[:50] + "..." if len(title) > 50 else title
-        
-        views = video[3] if video[3] else 0
-        
-        # عرض معلومات إضافية
-        extra_info = ""
-        if len(video) > 5 and video[5] and video[5] > 0:  # file_size
-            extra_info += f" | 💾 {video[5]//1024//1024:.0f}MB"
-        if len(video) > 7 and video[7]:  # upload_date
-            extra_info += f" | 📅 {video[7].strftime('%m/%d')}"
-        
-        text += f"**{i}.** {title}\n   👁️ {views:,}{extra_info}\n\n"
-        
-        btn = types.InlineKeyboardButton(f"📺 {i}. {title[:25]}...", callback_data=f"video_{video[0]}")
-        markup.add(btn)
-    
-    if total_count > 10:
-        text += f"**... و {total_count - 10} نتيجة أخرى**\n"
-    
-    # أزرار إضافية
-    buttons_row = []
-    if total_count > 15:
-        buttons_row.append(types.InlineKeyboardButton("🔍 بحث متقدم", callback_data="search"))
-    buttons_row.append(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-    
-    if len(buttons_row) > 0:
-        markup.add(*buttons_row)
-    
-    bot.edit_message_text(text, wait_msg.chat.id, wait_msg.message_id, 
-                         reply_markup=markup, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"❌ خطأ في البحث: {e}")
+        bot.edit_message_text(f"❌ حدث خطأ في البحث: {query}", chat_id, message_id)
 
 
 def handle_search_input(bot, message, query):
@@ -114,17 +119,22 @@ def handle_search_input(bot, message, query):
     # تنفيذ البحث المتقدم
     wait_msg = bot.reply_to(message, "🎯 جاري البحث المتقدم الشامل...")
     
-    results = VideoService.search_videos(query, limit=25)
-    total_count = VideoService.get_search_count(query)
-    
-    if not results:
-        bot.edit_message_text(f"❌ لم يتم العثور على نتائج للبحث المتقدم: **{query}**\n\n"
-                             f"🔍 تم البحث في جميع الحقول: العنوان، الوصف، اسم الملف، البيانات الوصفية", 
-                             wait_msg.chat.id, wait_msg.message_id, parse_mode='Markdown')
-        return
-    
-    # عرض النتائج مع خيارات متقدمة
-    show_advanced_search_results(bot, wait_msg.chat.id, wait_msg.message_id, results, query, total_count)
+    try:
+        results = VideoService.search_videos(query, limit=25)
+        total_count = VideoService.get_search_count(query)
+        
+        if not results:
+            bot.edit_message_text(f"❌ لم يتم العثور على نتائج للبحث المتقدم: **{query}**\n\n"
+                                 f"🔍 تم البحث في جميع الحقول: العنوان، الوصف، اسم الملف، البيانات الوصفية", 
+                                 wait_msg.chat.id, wait_msg.message_id, parse_mode='Markdown')
+            return
+        
+        # عرض النتائج مع خيارات متقدمة
+        show_advanced_search_results(bot, wait_msg.chat.id, wait_msg.message_id, results, query, total_count)
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في البحث: {e}")
+        bot.edit_message_text(f"❌ حدث خطأ في البحث: {query}", wait_msg.chat.id, wait_msg.message_id)
 
 
 def show_advanced_search_results(bot, chat_id, message_id, results, query, total_count):
@@ -147,8 +157,7 @@ def show_advanced_search_results(bot, chat_id, message_id, results, query, total
         views = video[3] if video[3] else 0
         extra_info = f"👁️ {views:,}"
         
-        if len(video) > 5 and video[5] and video[5] > 0:
-            extra_info += f" | 💾 {video[5]//1024//1024:.0f}MB"
+        # بدون file_size لأنه غير موجود
         
         text += f"**{i}.** {title_short}\n   {extra_info}\n\n"
         
@@ -166,8 +175,6 @@ def show_advanced_search_results(bot, chat_id, message_id, results, query, total
                 # إضافة معلومات الفيديو الثاني للنص
                 next_views = next_video[3] if next_video[3] else 0
                 next_extra_info = f"👁️ {next_views:,}"
-                if len(next_video) > 5 and next_video[5] and next_video[5] > 0:
-                    next_extra_info += f" | 💾 {next_video[5]//1024//1024:.0f}MB"
                 
                 text += f"**{i+1}.** {next_title[:35] + '...' if len(next_title) > 35 else next_title}\n   {next_extra_info}\n\n"
             else:
@@ -199,5 +206,8 @@ def show_advanced_search_results(bot, chat_id, message_id, results, query, total
 
 def register_text_handlers(bot):
     """تسجيل معالجات النصوص المحسنة"""
-    bot.message_handler(content_types=['text'])(lambda message: handle_text_message(bot, message))
-    logger.info("✅ تم تسجيل معالجات النصوص المحسنة")
+    try:
+        bot.message_handler(content_types=['text'])(lambda message: handle_text_message(bot, message))
+        logger.info("✅ تم تسجيل معالجات النصوص المحسنة")
+    except Exception as e:
+        logger.error(f"❌ خطأ في تسجيل معالجات النصوص: {e}")
