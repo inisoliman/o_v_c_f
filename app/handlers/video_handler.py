@@ -1,4 +1,4 @@
-"""معالج الفيديوهات للأرشفة والمشاهدة - إصدار مُصحح مع حل chat not found"""
+"""معالج الفيديوهات للأرشفة والمشاهدة - إصدار مُصحح نهائي"""
 import logging
 import json
 import os
@@ -104,7 +104,7 @@ def handle_video_details(bot, call, user_id, video_id):
 
 
 def handle_video_download(bot, call, video_id):
-    """تحميل/جلب الفيديو - الطريقة المحسنة مع حل chat not found"""
+    """تحميل/جلب الفيديو - طريقة محسنة مع حل جميع المشاكل"""
     try:
         video = VideoService.get_video_by_id(video_id)
         if not video:
@@ -114,39 +114,63 @@ def handle_video_download(bot, call, video_id):
         title = video[9] if video[9] else (video[4] if video[4] else f"فيديو {video[0]}")
         file_id = video[5]  # file_id
         
-        # الطريقة الأولى والأساسية: استخدام file_id مباشرة
-        if file_id:
+        # الطريقة الأولى: استخدام file_id مباشرة (الأكثر موثوقية)
+        if file_id and file_id != "":
             try:
-                caption = f"🎬 {title}\n\n📥 من الأرشيف المتقدم"
+                caption = f"🎬 {title}\n\n📥 من أرشيف الفيديوهات المتقدم\n🤖 تم الجلب تلقائياً"
                 
-                # تحديد نوع الملف
+                # تحديد نوع الملف وإرساله
                 file_name = (video[4] or "").lower()
-                if file_name.endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm')):
-                    bot.send_video(chat_id=call.message.chat.id, video=file_id, caption=caption)
+                if file_name.endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv')):
+                    sent_msg = bot.send_video(chat_id=call.message.chat.id, video=file_id, caption=caption)
+                elif file_name.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                    sent_msg = bot.send_photo(chat_id=call.message.chat.id, photo=file_id, caption=caption)
                 else:
-                    bot.send_document(chat_id=call.message.chat.id, document=file_id, caption=caption)
+                    sent_msg = bot.send_document(chat_id=call.message.chat.id, document=file_id, caption=caption)
                 
-                bot.answer_callback_query(call.id, "✅ تم إرسال الفيديو!")
-                logger.info(f"✅ تم إرسال الفيديو {video_id} بنجاح عبر file_id")
+                bot.answer_callback_query(call.id, "✅ تم إرسال الفيديو بنجاح!")
+                logger.info(f"✅ تم إرسال الفيديو {video_id} بنجاح عبر file_id للمستخدم {call.from_user.id}")
                 return
                 
             except Exception as file_error:
                 logger.warning(f"⚠️ فشل إرسال file_id للفيديو {video_id}: {file_error}")
-                # المتابعة للطريقة الثانية
+                # المتابعة للطريقة التالية
         
-        # الطريقة الثانية: copy_message من المصدر (إذا توفر الوصول)
-        source_chat_id = video[3]     # chat_id حيث الرسالة الأصلية
-        source_message_id = video[1]  # message_id للرسالة الأصلية
+        # الطريقة الثانية: محاولة الحصول على ملف جديد من التيليجرام
+        if file_id and file_id != "":
+            try:
+                # محاولة الحصول على معلومات الملف المُحدثة
+                file_info = bot.get_file(file_id)
+                if file_info and file_info.file_path:
+                    # إرسال الملف بطريقة مختلفة
+                    caption = f"🎬 {title}\n\n📥 تم جلبه من الأرشيف (طريقة 2)"
+                    
+                    file_name = (video[4] or "").lower()
+                    if file_name.endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm')):
+                        bot.send_video(chat_id=call.message.chat.id, video=file_id, caption=caption, timeout=60)
+                    else:
+                        bot.send_document(chat_id=call.message.chat.id, document=file_id, caption=caption, timeout=60)
+                    
+                    bot.answer_callback_query(call.id, "✅ تم جلب الفيديو (الطريقة 2)!")
+                    logger.info(f"✅ تم إرسال الفيديو {video_id} عبر get_file للمستخدم {call.from_user.id}")
+                    return
+                    
+            except Exception as get_file_error:
+                logger.warning(f"⚠️ فشل get_file للفيديو {video_id}: {get_file_error}")
+        
+        # الطريقة الثالثة: copy_message من المصدر (إذا توفرت المعلومات)
+        source_chat_id = video[3]  # chat_id
+        source_message_id = video[1]  # message_id
         
         if source_chat_id and source_message_id:
             try:
-                logger.info(f"🔄 محاولة copy_message للفيديو {video_id} من المحادثة {source_chat_id}")
+                logger.info(f"🔄 محاولة copy_message للفيديو {video_id} من {source_chat_id}:{source_message_id}")
                 
-                bot.copy_message(
+                copied_msg = bot.copy_message(
                     chat_id=call.message.chat.id,
                     from_chat_id=source_chat_id,
                     message_id=source_message_id,
-                    caption=f"🎬 {title}\n\n📥 تم جلبه من الأرشيف"
+                    caption=f"🎬 {title}\n\n📥 تم جلبه من المصدر الأصلي"
                 )
                 
                 bot.answer_callback_query(call.id, "✅ تم جلب الفيديو من المصدر!")
@@ -156,10 +180,10 @@ def handle_video_download(bot, call, video_id):
             except Exception as copy_error:
                 logger.warning(f"⚠️ فشل copy_message للفيديو {video_id}: {copy_error}")
                 
-                # محاولة forward_message كبديل ثالث
+                # محاولة forward_message كبديل
                 try:
                     logger.info(f"🔄 محاولة forward_message للفيديو {video_id}")
-                    bot.forward_message(
+                    forwarded_msg = bot.forward_message(
                         chat_id=call.message.chat.id,
                         from_chat_id=source_chat_id,
                         message_id=source_message_id
@@ -169,37 +193,33 @@ def handle_video_download(bot, call, video_id):
                     return
                     
                 except Exception as forward_error:
-                    logger.warning(f"⚠️ فشل forward_message أيضاً للفيديو {video_id}: {forward_error}")
+                    logger.warning(f"⚠️ فشل forward_message للفيديو {video_id}: {forward_error}")
         
-        # إذا فشلت جميع الطرق
-        error_msg = (
-            f"❌ تعذر الوصول للفيديو: {title}\n\n"
-            "الأسباب المحتملة:\n"
-            "• البوت غير مضاف للقناة المصدر\n"
-            "• الملف منتهي الصلاحية\n"
-            "• تم حذف الرسالة الأصلية\n\n"
-            "اتصل بالمشرف لحل المشكلة"
-        )
-        bot.answer_callback_query(call.id, "❌ تعذر جلب الفيديو", show_alert=True)
+        # إذا فشلت جميع الطرق - إرسال رسالة مساعدة
+        help_text = f"❌ تعذر جلب الفيديو: {title}\n\n"
+        help_text += "الأسباب المحتملة:\n"
+        help_text += "• انتهت صلاحية الملف\n"
+        help_text += "• تم حذف الرسالة الأصلية\n"
+        help_text += "• البوت غير مضاف للقناة المصدر\n"
+        help_text += "• مشكلة في الاتصال بالتيليجرام\n\n"
+        help_text += "💡 جرب مرة أخرى أو اتصل بالمشرف"
         
-        # إرسال رسالة تفصيلية للمشرف فقط
+        # إرسال معلومات مفصلة للمشرف
         from main import ADMIN_IDS
         if call.from_user.id in ADMIN_IDS:
-            admin_error_msg = f"🔧 تفاصيل للمشرف:\n"
-            admin_error_msg += f"🆔 الفيديو: {video_id}\n"
-            admin_error_msg += f"💬 المحادثة المصدر: {source_chat_id}\n"
-            admin_error_msg += f"📨 الرسالة المصدر: {source_message_id}\n"
-            admin_error_msg += f"📄 File ID: {file_id[:50]}...\n\n"
-            admin_error_msg += "تأكد من:\n"
-            admin_error_msg += "1. إضافة البوت للقناة/الجروب المصدر\n"
-            admin_error_msg += "2. صحة معرف المحادثة المصدر\n"
-            admin_error_msg += "3. وجود الرسالة الأصلية"
-            
-            bot.send_message(call.message.chat.id, admin_error_msg)
+            help_text += f"\n\n🔧 تفاصيل للمشرف:\n"
+            help_text += f"🆔 الفيديو: {video_id}\n"
+            help_text += f"💬 المصدر: {source_chat_id}\n"
+            help_text += f"📨 الرسالة: {source_message_id}\n"
+            help_text += f"📄 File ID: {(file_id or 'غير متوفر')[:30]}...\n"
+        
+        bot.answer_callback_query(call.id, "❌ تعذر جلب الفيديو - راجع الرسالة", show_alert=True)
+        bot.send_message(call.message.chat.id, help_text)
+        logger.error(f"❌ فشل جلب الفيديو {video_id} بجميع الطرق")
             
     except Exception as e:
         logger.error(f"❌ خطأ عام في جلب الفيديو: {e}")
-        bot.answer_callback_query(call.id, "❌ حدث خطأ أثناء جلب الفيديو", show_alert=True)
+        bot.answer_callback_query(call.id, "❌ حدث خطأ غير متوقع", show_alert=True)
 
 
 def handle_toggle_favorite(bot, call, user_id, video_id):
@@ -232,6 +252,10 @@ def handle_video_archive(bot, message):
             file_id = message.document.file_id
             file_name = message.document.file_name or f"document_{message.message_id}"
             
+        elif message.content_type == 'photo':
+            file_id = message.photo[-1].file_id  # أكبر حجم
+            file_name = f"photo_{message.message_id}.jpg"
+            
         else:
             logger.warning(f"⚠️ نوع محتوى غير مدعوم: {message.content_type}")
             return
@@ -263,10 +287,12 @@ def handle_video_archive(bot, message):
         )
 
         if success:
-            response_text = f"✅ تم حفظ الفيديو في الأرشيف\n\n"
+            response_text = f"✅ تم حفظ الملف في الأرشيف بنجاح\n\n"
             response_text += f"🎬 العنوان: {title}\n"
             response_text += f"📄 اسم الملف: {file_name}\n"
-            response_text += f"📚 التصنيف: افتراضي\n"
+            response_text += f"📚 التصنيف: افتراضي (غير مصنف)\n"
+            response_text += f"💬 المحادثة المصدر: {message.chat.id}\n"
+            response_text += f"📨 معرف الرسالة: {message.message_id}\n"
             
             if metadata.get('season'):
                 response_text += f"📺 الموسم: {metadata['season']}\n"
@@ -275,27 +301,37 @@ def handle_video_archive(bot, message):
             if metadata.get('quality'):
                 response_text += f"🎥 الجودة: {metadata['quality']}\n"
             
-            response_text += f"\n🆔 معرف الفيديو: {message.message_id}"
+            response_text += f"\n🤖 تم الحفظ تلقائياً بواسطة النظام المتطور!"
             
-            bot.send_message(message.chat.id, response_text)
-            logger.info(f"✅ تم أرشفة الفيديو بنجاح: {title}")
+            # إنشاء أزرار للإجراءات السريعة
+            markup = types.InlineKeyboardMarkup()
+            markup.add(
+                types.InlineKeyboardButton("📚 تغيير التصنيف", callback_data=f"admin_video_move_{message.message_id}"),
+                types.InlineKeyboardButton("✏️ تعديل العنوان", callback_data=f"admin_video_edit_{message.message_id}")
+            )
+            markup.add(types.InlineKeyboardButton("🔍 عرض التفاصيل", callback_data=f"video_{message.message_id}"))
+            
+            bot.send_message(message.chat.id, response_text, reply_markup=markup)
+            logger.info(f"✅ تم أرشفة الملف بنجاح: {title} من المحادثة {message.chat.id}")
             
         else:
-            bot.send_message(message.chat.id, "❌ حدث خطأ في حفظ الفيديو")
-            logger.error(f"❌ فشل في حفظ الفيديو: {file_name}")
+            bot.send_message(message.chat.id, "❌ حدث خطأ في حفظ الملف - تحقق من قاعدة البيانات")
+            logger.error(f"❌ فشل في حفظ الملف: {file_name}")
 
     except Exception as e:
-        logger.error(f"❌ خطأ في أرشفة الفيديو: {e}")
-        bot.send_message(message.chat.id, "❌ حدث خطأ في حفظ الفيديو")
+        logger.error(f"❌ خطأ في أرشفة الملف: {e}")
+        bot.send_message(message.chat.id, f"❌ حدث خطأ في حفظ الملف: {str(e)[:100]}...")
 
 
 def register_video_handlers(bot):
     """تسجيل معالجات الفيديوهات"""
     
-    @bot.message_handler(content_types=['video', 'document'])
+    @bot.message_handler(content_types=['video', 'document', 'photo'])
     def video_archive_handler(message):
         from main import ADMIN_IDS
         if message.from_user.id in ADMIN_IDS:
             handle_video_archive(bot, message)
+        else:
+            logger.info(f"ℹ️ تم تجاهل ملف من مستخدم غير مشرف: {message.from_user.id}")
     
     logger.info("✅ تم تسجيل معالجات الفيديوهات")
