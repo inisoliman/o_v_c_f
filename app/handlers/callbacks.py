@@ -396,6 +396,91 @@ def handle_stats_menu(bot, call):
         safe_edit(bot, call.message.chat.id, call.message.message_id, stats_text, markup)
     except Exception as e:
         logger.error(f"❌ خطأ في الإحصائيات: {e}")
+def handle_category_videos(bot, call, category_id: int, page: int = 1):
+    """معالج فيديوهات التصنيف مع دعم التصنيفات الفرعية"""
+    try:
+        from app.services.video_service import VideoService
+        from app.services.category_service import CategoryService
+        
+        per_page = 8
+        category = CategoryService.get_category_by_id(category_id)
+        if not category:
+            bot.answer_callback_query(call.id, "❌ التصنيف غير موجود")
+            return
+        
+        category_name = category[1]
+        
+        # جلب التصنيفات الفرعية
+        subcategories = CategoryService.get_subcategories(category_id)
+        
+        # جلب الفيديوهات
+        videos = VideoService.get_videos_by_category(category_id, per_page, page)
+        total_videos = VideoService.get_category_videos_count(category_id)
+        
+        # التحقق من وجود محتوى
+        if not subcategories and not videos:
+            bot.answer_callback_query(call.id, "❌ لا توجد عناصر في هذا التصنيف")
+            return
+        
+        text = f"📁 {category_name}\n\n"
+        markup = types.InlineKeyboardMarkup()
+        
+        # عرض التصنيفات الفرعية إن وجدت
+        if subcategories:
+            text += "📂 التصنيفات الفرعية:\n"
+            for sub in subcategories:
+                sub_name = sub[1][:30] + "..." if len(sub[1]) > 30 else sub[1]
+                video_count = sub[4] if len(sub) > 4 else 0
+                display_text = f"📂 {sub_name}"
+                if video_count > 0:
+                    display_text += f" ({video_count})"
+                
+                text += f"• {sub_name}\n"
+                markup.add(types.InlineKeyboardButton(display_text, callback_data=f"category_{sub[0]}"))
+            text += "\n"
+        
+        # عرض الفيديوهات إن وجدت
+        if videos:
+            if subcategories:
+                text += "🎬 الفيديوهات:\n"
+            
+            total_pages = max(1, math.ceil(total_videos / per_page))
+            text += f"📊 {total_videos} فيديو"
+            if total_pages > 1:
+                text += f" | صفحة {page}/{total_pages}"
+            text += "\n\n"
+            
+            for i, video in enumerate(videos, 1):
+                title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+                title_short = title[:30] + "..." if len(title) > 30 else title
+                views = video[3] if video[3] else 0
+                
+                video_number = (page - 1) * per_page + i
+                text += f"{video_number}. {title_short}\n   👁️ {views:,}\n\n"
+                
+                btn_details = types.InlineKeyboardButton(f"📺 {video_number}. {title[:15]}...", callback_data=f"video_{video[0]}")
+                btn_download = types.InlineKeyboardButton("📥 جلب", callback_data=f"download_{video[0]}")
+                markup.add(btn_details, btn_download)
+            
+            # أزرار التصفح للفيديوهات
+            if total_pages > 1:
+                nav_buttons = []
+                if page > 1:
+                    nav_buttons.append(types.InlineKeyboardButton("⬅️ السابق", callback_data=f"category_{category_id}_page_{page-1}"))
+                if page < total_pages:
+                    nav_buttons.append(types.InlineKeyboardButton("➡️ التالي", callback_data=f"category_{category_id}_page_{page+1}"))
+                if nav_buttons:
+                    markup.add(*nav_buttons)
+        
+        # أزرار التنقل
+        btn_categories = types.InlineKeyboardButton("📚 كل التصنيفات", callback_data="categories")
+        btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
+        markup.add(btn_categories, btn_back)
+        
+        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
+    except Exception as e:
+        logger.error(f"❌ خطأ في فيديوهات التصنيف: {e}")
+        safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ حدث خطأ في عرض التصنيف")
 
 
 def handle_help_menu(bot, call):
