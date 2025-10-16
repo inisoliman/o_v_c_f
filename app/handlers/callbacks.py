@@ -1,6 +1,4 @@
-"""
-معالج شامل لجميع أزرار البوت مع دعم التصفح - مُحدَث وآمن من أخطاء Markdown/Reply
-"""
+"""معالج شامل لجميع أزرار البوت مع دعم التصفح وأزرار الإدارة"""
 import logging
 import math
 from datetime import datetime
@@ -42,10 +40,13 @@ def safe_send(bot, chat_id, text, markup=None, allow_html=False):
 
 
 def handle_callback_query(bot, call):
-    """معالج شامل للأزرار مع دعم التصفح"""
+    """معالج شامل للأزرار مع دعم التصفح وأزرار الإدارة"""
     try:
         user_id = call.from_user.id
         data = call.data
+        
+        # استيراد قائمة المشرفين
+        from main import ADMIN_IDS
         
         if data == "main_menu":
             from app.handlers.start import start_command
@@ -109,11 +110,22 @@ def handle_callback_query(bot, call):
             video_id = int(data.replace("favorite_", ""))
             handle_toggle_favorite(bot, call, user_id, video_id)
             
+        # معالجة أزرار الإدارة
+        elif data.startswith("admin_"):
+            if user_id not in ADMIN_IDS:
+                bot.answer_callback_query(call.id, "❌ غير مصرح لك بهذه العملية")
+                return
+            
+            # استدعاء معالج أزرار الإدارة
+            from app.handlers.admin import handle_admin_callback
+            handle_admin_callback(bot, call)
+            return  # عدم استدعاء answer_callback_query مرة أخرى
+            
         else:
             bot.answer_callback_query(call.id, "🔄 هذه الميزة قيد التطوير")
         
         # تأكيد الضغط (بدون رسالة في حال تم التعامل داخل دوال الفيديو)
-        if not data.startswith(("video_", "download_", "favorite_")):
+        if not data.startswith(("video_", "download_", "favorite_", "admin_")):
             bot.answer_callback_query(call.id)
         
     except Exception as e:
@@ -194,210 +206,7 @@ def handle_categories_menu(bot, call, page: int = 1):
 
 
 def handle_category_videos(bot, call, category_id: int, page: int = 1):
-    """معالج فيديوهات التصنيف مع التصفح"""
-    try:
-        from app.services.video_service import VideoService
-        from app.services.category_service import CategoryService
-        
-        per_page = 8
-        category = CategoryService.get_category_by_id(category_id)
-        if not category:
-            bot.answer_callback_query(call.id, "❌ التصنيف غير موجود")
-            return
-        
-        videos = VideoService.get_videos_by_category(category_id, per_page, page)
-        total_videos = VideoService.get_category_videos_count(category_id)
-        
-        if not videos:
-            bot.answer_callback_query(call.id, "❌ لا توجد فيديوهات في هذا التصنيف")
-            return
-        
-        total_pages = max(1, math.ceil(total_videos / per_page))
-        category_name = category[1]
-        
-        text = f"📁 {category_name}\n"
-        text += f"📊 {total_videos} فيديو | صفحة {page}/{total_pages}\n\n"
-        
-        markup = types.InlineKeyboardMarkup()
-        
-        for i, video in enumerate(videos, 1):
-            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-            title_short = title[:30] + "..." if len(title) > 30 else title
-            views = video[3] if video[3] else 0
-            
-            video_number = (page - 1) * per_page + i
-            text += f"{video_number}. {title_short}\n   👁️ {views:,}\n\n"
-            
-            btn = types.InlineKeyboardButton(f"{video_number}. {title[:20]}...", callback_data=f"video_{video[0]}")
-            markup.add(btn)
-        
-        nav_buttons = []
-        if page > 1:
-            nav_buttons.append(types.InlineKeyboardButton("⬅️ السابق", callback_data=f"category_{category_id}_page_{page-1}"))
-        if page < total_pages:
-            nav_buttons.append(types.InlineKeyboardButton("➡️ التالي", callback_data=f"category_{category_id}_page_{page+1}"))
-        if nav_buttons:
-            markup.add(*nav_buttons)
-        
-        btn_categories = types.InlineKeyboardButton("📚 كل التصنيفات", callback_data="categories")
-        btn_back = types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu")
-        markup.add(btn_categories, btn_back)
-        
-        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
-    except Exception as e:
-        logger.error(f"❌ خطأ في فيديوهات التصنيف: {e}")
-        safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ حدث خطأ في عرض الفيديوهات")
-
-
-def handle_favorites_menu(bot, call, user_id):
-    """معالج قائمة المفضلات"""
-    try:
-        from app.services.user_service import UserService
-        favorites = UserService.get_user_favorites(user_id, 10)
-        
-        if not favorites:
-            empty_text = (
-                "⭐ مفضلاتي\n\n"
-                "❌ لا توجد فيديوهات في المفضلة\n\n"
-                "💡 للإضافة: اختر أي فيديو واضغط 💖"
-            )
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("🔍 البحث", callback_data="search"),
-                       types.InlineKeyboardButton("🔥 الأشهر", callback_data="popular"))
-            markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-            safe_edit(bot, call.message.chat.id, call.message.message_id, empty_text, markup)
-            return
-            
-        text = f"⭐ مفضلاتي ({len(favorites)})\n\n"
-        markup = types.InlineKeyboardMarkup()
-        
-        for i, video in enumerate(favorites, 1):
-            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-            title_short = title[:30] + "..." if len(title) > 30 else title
-            text += f"{i}. {title_short}\n\n"
-            btn = types.InlineKeyboardButton(f"{i}. {title[:20]}...", callback_data=f"video_{video[0]}")
-            markup.add(btn)
-            
-        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
-    except Exception as e:
-        logger.error(f"❌ خطأ في المفضلات: {e}")
-
-
-def handle_history_menu(bot, call, user_id):
-    """معالج سجل المشاهدة"""
-    try:
-        from app.services.user_service import UserService
-        history = UserService.get_user_history(user_id, 10)
-        
-        if not history:
-            empty_text = (
-                "📊 سجل المشاهدة\n\n"
-                "❌ لا يوجد سجل مشاهدة\n\n"
-                "💡 للبدء: اختر أي فيديو لمشاهدة تفاصيله"
-            )
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("🔍 البحث", callback_data="search"),
-                       types.InlineKeyboardButton("📚 التصنيفات", callback_data="categories"))
-            markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-            safe_edit(bot, call.message.chat.id, call.message.message_id, empty_text, markup)
-            return
-            
-        text = f"📊 سجل المشاهدة ({len(history)})\n\n"
-        markup = types.InlineKeyboardMarkup()
-        
-        for i, video in enumerate(history, 1):
-            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-            title_short = title[:30] + "..." if len(title) > 30 else title
-            text += f"{i}. {title_short}\n\n"
-            btn = types.InlineKeyboardButton(f"{i}. {title[:20]}...", callback_data=f"video_{video[0]}")
-            markup.add(btn)
-            
-        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
-    except Exception as e:
-        logger.error(f"❌ خطأ في السجل: {e}")
-
-
-def handle_popular_videos(bot, call):
-    """معالج الفيديوهات الشائعة"""
-    try:
-        from app.services.video_service import VideoService
-        popular = VideoService.get_popular_videos(10)
-        
-        if not popular:
-            safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ لا توجد فيديوهات شائعة")
-            return
-            
-        text = "🔥 الفيديوهات الأشهر\n\n"
-        markup = types.InlineKeyboardMarkup()
-        
-        for i, video in enumerate(popular, 1):
-            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-            title_short = title[:30] + "..." if len(title) > 30 else title
-            views = video[3] if video[3] else 0
-            
-            text += f"{i}. {title_short}\n   👁️ {views:,}\n\n"
-            btn = types.InlineKeyboardButton(f"{i}. {title[:20]}...", callback_data=f"video_{video[0]}")
-            markup.add(btn)
-            
-        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
-    except Exception as e:
-        logger.error(f"❌ خطأ في الفيديوهات الشائعة: {e}")
-
-
-def handle_recent_videos(bot, call):
-    """معالج أحدث الفيديوهات"""
-    try:
-        from app.services.video_service import VideoService
-        recent = VideoService.get_recent_videos(10)
-        
-        if not recent:
-            safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ لا توجد فيديوهات حديثة")
-            return
-            
-        text = "🆕 أحدث الفيديوهات\n\n"
-        markup = types.InlineKeyboardMarkup()
-        
-        for i, video in enumerate(recent, 1):
-            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
-            title_short = title[:30] + "..." if len(title) > 30 else title
-            text += f"{i}. {title_short}\n\n"
-            btn = types.InlineKeyboardButton(f"{i}. {title[:20]}...", callback_data=f"video_{video[0]}")
-            markup.add(btn)
-            
-        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
-    except Exception as e:
-        logger.error(f"❌ خطأ في الفيديوهات الحديثة: {e}")
-
-
-def handle_stats_menu(bot, call):
-    """معالج الإحصائيات"""
-    try:
-        from app.services.stats_service import StatsService
-        stats = StatsService.get_general_stats()
-        
-        stats_text = (
-            "📊 إحصائيات أرشيف الفيديوهات\n\n"
-            f"🎬 الفيديوهات: {stats.get('videos', 0):,}\n"
-            f"👥 المستخدمون: {stats.get('users', 0):,}\n"
-            f"📚 التصنيفات: {stats.get('categories', 0):,}\n"
-            f"⭐ المفضلات: {stats.get('favorites', 0):,}\n"
-            f"👁️ إجمالي المشاهدات: {stats.get('total_views', 0):,}\n\n"
-            "🤖 النظام:\n"
-            "✅ يعمل 24/7 مع Webhooks\n"
-            "🌐 بدون تضارب\n"
-            f"🔄 آخر تحديث: {datetime.now().strftime('%H:%M')}\n"
-        )
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
-        safe_edit(bot, call.message.chat.id, call.message.message_id, stats_text, markup)
-    except Exception as e:
-        logger.error(f"❌ خطأ في الإحصائيات: {e}")
-def handle_category_videos(bot, call, category_id: int, page: int = 1):
-    """معالج فيديوهات التصنيف مع دعم التصنيفات الفرعية"""
+    """معالج فيديوهات التصنيف مع دعم التصنيفات الفرعية والتصفح"""
     try:
         from app.services.video_service import VideoService
         from app.services.category_service import CategoryService
@@ -411,7 +220,12 @@ def handle_category_videos(bot, call, category_id: int, page: int = 1):
         category_name = category[1]
         
         # جلب التصنيفات الفرعية
-        subcategories = CategoryService.get_subcategories(category_id)
+        subcategories = []
+        try:
+            if hasattr(CategoryService, 'get_subcategories'):
+                subcategories = CategoryService.get_subcategories(category_id)
+        except Exception as sc_err:
+            logger.error(f"❌ خطأ في جلب التصنيفات الفرعية: {sc_err}")
         
         # جلب الفيديوهات
         videos = VideoService.get_videos_by_category(category_id, per_page, page)
@@ -458,6 +272,7 @@ def handle_category_videos(bot, call, category_id: int, page: int = 1):
                 video_number = (page - 1) * per_page + i
                 text += f"{video_number}. {title_short}\n   👁️ {views:,}\n\n"
                 
+                # أضف زرين لكل فيديو: تفاصيل وجلب
                 btn_details = types.InlineKeyboardButton(f"📺 {video_number}. {title[:15]}...", callback_data=f"video_{video[0]}")
                 btn_download = types.InlineKeyboardButton("📥 جلب", callback_data=f"download_{video[0]}")
                 markup.add(btn_details, btn_download)
@@ -483,6 +298,167 @@ def handle_category_videos(bot, call, category_id: int, page: int = 1):
         safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ حدث خطأ في عرض التصنيف")
 
 
+def handle_favorites_menu(bot, call, user_id):
+    """معالج قائمة المفضلات"""
+    try:
+        from app.services.user_service import UserService
+        favorites = UserService.get_user_favorites(user_id, 10)
+        
+        if not favorites:
+            empty_text = (
+                "⭐ مفضلاتي\n\n"
+                "❌ لا توجد فيديوهات في المفضلة\n\n"
+                "💡 للإضافة: اختر أي فيديو واضغط 💖"
+            )
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🔍 البحث", callback_data="search"),
+                       types.InlineKeyboardButton("🔥 الأشهر", callback_data="popular"))
+            markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+            safe_edit(bot, call.message.chat.id, call.message.message_id, empty_text, markup)
+            return
+            
+        text = f"⭐ مفضلاتي ({len(favorites)})\n\n"
+        markup = types.InlineKeyboardMarkup()
+        
+        for i, video in enumerate(favorites, 1):
+            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+            title_short = title[:30] + "..." if len(title) > 30 else title
+            text += f"{i}. {title_short}\n\n"
+            
+            # أضف زرين لكل فيديو: تفاصيل وجلب
+            btn_details = types.InlineKeyboardButton(f"📺 {i}. {title[:15]}...", callback_data=f"video_{video[0]}")
+            btn_download = types.InlineKeyboardButton("📥 جلب", callback_data=f"download_{video[0]}")
+            markup.add(btn_details, btn_download)
+            
+        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
+    except Exception as e:
+        logger.error(f"❌ خطأ في المفضلات: {e}")
+
+
+def handle_history_menu(bot, call, user_id):
+    """معالج سجل المشاهدة"""
+    try:
+        from app.services.user_service import UserService
+        history = UserService.get_user_history(user_id, 10)
+        
+        if not history:
+            empty_text = (
+                "📊 سجل المشاهدة\n\n"
+                "❌ لا يوجد سجل مشاهدة\n\n"
+                "💡 للبدء: اختر أي فيديو لمشاهدة تفاصيله"
+            )
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🔍 البحث", callback_data="search"),
+                       types.InlineKeyboardButton("📚 التصنيفات", callback_data="categories"))
+            markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+            safe_edit(bot, call.message.chat.id, call.message.message_id, empty_text, markup)
+            return
+            
+        text = f"📊 سجل المشاهدة ({len(history)})\n\n"
+        markup = types.InlineKeyboardMarkup()
+        
+        for i, video in enumerate(history, 1):
+            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+            title_short = title[:30] + "..." if len(title) > 30 else title
+            text += f"{i}. {title_short}\n\n"
+            
+            # أضف زرين لكل فيديو: تفاصيل وجلب
+            btn_details = types.InlineKeyboardButton(f"📺 {i}. {title[:15]}...", callback_data=f"video_{video[0]}")
+            btn_download = types.InlineKeyboardButton("📥 جلب", callback_data=f"download_{video[0]}")
+            markup.add(btn_details, btn_download)
+            
+        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
+    except Exception as e:
+        logger.error(f"❌ خطأ في السجل: {e}")
+
+
+def handle_popular_videos(bot, call):
+    """معالج الفيديوهات الشائعة"""
+    try:
+        from app.services.video_service import VideoService
+        popular = VideoService.get_popular_videos(10)
+        
+        if not popular:
+            safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ لا توجد فيديوهات شائعة")
+            return
+            
+        text = "🔥 الفيديوهات الأشهر\n\n"
+        markup = types.InlineKeyboardMarkup()
+        
+        for i, video in enumerate(popular, 1):
+            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+            title_short = title[:30] + "..." if len(title) > 30 else title
+            views = video[3] if video[3] else 0
+            
+            text += f"{i}. {title_short}\n   👁️ {views:,}\n\n"
+            
+            # أضف زرين لكل فيديو: تفاصيل وجلب
+            btn_details = types.InlineKeyboardButton(f"📺 {i}. {title[:15]}...", callback_data=f"video_{video[0]}")
+            btn_download = types.InlineKeyboardButton("📥 جلب", callback_data=f"download_{video[0]}")
+            markup.add(btn_details, btn_download)
+            
+        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
+    except Exception as e:
+        logger.error(f"❌ خطأ في الفيديوهات الشائعة: {e}")
+
+
+def handle_recent_videos(bot, call):
+    """معالج أحدث الفيديوهات"""
+    try:
+        from app.services.video_service import VideoService
+        recent = VideoService.get_recent_videos(10)
+        
+        if not recent:
+            safe_edit(bot, call.message.chat.id, call.message.message_id, "❌ لا توجد فيديوهات حديثة")
+            return
+            
+        text = "🆕 أحدث الفيديوهات\n\n"
+        markup = types.InlineKeyboardMarkup()
+        
+        for i, video in enumerate(recent, 1):
+            title = video[1] if video[1] else (video[4] if video[4] else f"فيديو {video[0]}")
+            title_short = title[:30] + "..." if len(title) > 30 else title
+            text += f"{i}. {title_short}\n\n"
+            
+            # أضف زرين لكل فيديو: تفاصيل وجلب
+            btn_details = types.InlineKeyboardButton(f"📺 {i}. {title[:15]}...", callback_data=f"video_{video[0]}")
+            btn_download = types.InlineKeyboardButton("📥 جلب", callback_data=f"download_{video[0]}")
+            markup.add(btn_details, btn_download)
+            
+        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+        safe_edit(bot, call.message.chat.id, call.message.message_id, text, markup)
+    except Exception as e:
+        logger.error(f"❌ خطأ في الفيديوهات الحديثة: {e}")
+
+
+def handle_stats_menu(bot, call):
+    """معالج الإحصائيات"""
+    try:
+        from app.services.stats_service import StatsService
+        stats = StatsService.get_general_stats()
+        
+        stats_text = (
+            "📊 إحصائيات أرشيف الفيديوهات\n\n"
+            f"🎬 الفيديوهات: {stats.get('videos', 0):,}\n"
+            f"👥 المستخدمون: {stats.get('users', 0):,}\n"
+            f"📚 التصنيفات: {stats.get('categories', 0):,}\n"
+            f"⭐ المفضلات: {stats.get('favorites', 0):,}\n"
+            f"👁️ إجمالي المشاهدات: {stats.get('total_views', 0):,}\n\n"
+            "🤖 النظام:\n"
+            "✅ يعمل 24/7 مع Webhooks\n"
+            "🌐 بدون تضارب\n"
+            f"🔄 آخر تحديث: {datetime.now().strftime('%H:%M')}\n"
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🏠 الرئيسية", callback_data="main_menu"))
+        safe_edit(bot, call.message.chat.id, call.message.message_id, stats_text, markup)
+    except Exception as e:
+        logger.error(f"❌ خطأ في الإحصائيات: {e}")
+
+
 def handle_help_menu(bot, call):
     """معالج المساعدة"""
     help_text = (
@@ -491,6 +467,7 @@ def handle_help_menu(bot, call):
         "📚 التصنيفات: تصفح المحتوى\n"
         "⭐ المفضلة: احفظ ما تحب\n"
         "📊 السجل: تتبع مشاهداتك\n"
+        "📥 الجلب: تحميل الملفات تلقائياً\n"
         "🤖 Webhooks: استجابة فورية"
     )
     markup = types.InlineKeyboardMarkup()
